@@ -1,12 +1,6 @@
 document.addEventListener("DOMContentLoaded", () => {
   console.log("Popup chargé");
 
-  // Éléments UI principaux
-  const serverStatus = document.getElementById("server-status");
-  const progressContainer = document.querySelector(".progress-container");
-  const progressBar = document.querySelector(".progress-bar");
-  const progressMessage = document.querySelector(".progress-message");
-
   // Initialisation des onglets, boutons et statut serveur
   setupTabs();
   setupCopyButtons();

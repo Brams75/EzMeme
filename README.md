@@ -21,7 +21,7 @@ EzMeme est une extension qui permet de faciliter le téléchargement et l'analys
 1. Cloner le dépôt
 
 ```bash
-git clone https://github.com/votre-nom/EzMeme.git
+git clone https://github.com/Brams75/EzMeme.git
 cd EzMeme
 ```
 

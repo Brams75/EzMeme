@@ -1,0 +1,54 @@
+# Fichiers d'environnement contenant des informations sensibles
+.env
+
+# Dossiers de données
+/downloads/
+/frames/
+/ocr/
+
+# Dossiers de node.js
+/node_modules/
+/npm-debug.log
+/yarn-error.log
+/yarn-debug.log
+/package-lock.json
+
+# Dossiers et fichiers Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+/venv/
+/.venv/
+/ENV/
+/.env/
+/env/
+/build/
+/develop-eggs/
+/dist/
+/downloads/
+/eggs/
+/.eggs/
+/lib/
+/lib64/
+/parts/
+/sdist/
+/var/
+/*.egg-info/
+/.installed.cfg
+/*.egg
+
+# Fichiers système
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Fichiers de logs
+*.log
+
+# Fichiers temporaires
+*.tmp
+*.swp
+*.swo
+*~ 

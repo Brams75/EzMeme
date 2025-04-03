@@ -1,0 +1,13 @@
+{
+  "name": "ezmeme-instagram-downloader",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Extension Chrome pour télécharger les vidéos et l'audio d'Instagram",
+  "scripts": {
+    "generate-icons": "node generate-icons.js",
+    "build": "npm run generate-icons"
+  },
+  "dependencies": {
+    "sharp": "^0.33.2"
+  }
+}

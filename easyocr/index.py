@@ -31,6 +31,15 @@ client = OpenAI(api_key=api_key)
 gpu_enabled = os.getenv('EASYOCR_GPU_ENABLED', 'True').lower() == 'true'
 print(f"EasyOCR GPU enabled: {gpu_enabled}")
 
+# Variable pour tracking des performances
+performance_metrics = {
+    'preprocessing_time': 0,
+    'ocr_time': 0,
+    'total_time': 0,
+    'images_processed': 0,
+    'unique_images': 0
+}
+
 # Initialiser EasyOCR avec la langue française
 reader = easyocr.Reader(['fr','en'], gpu=gpu_enabled)
 
@@ -46,6 +55,7 @@ def get_image_hash(image):
 
 def preprocess_image(image_path, scale_percent=50):
     """Prétraite l'image en la redimensionnant pour accélérer l'OCR"""
+    start_time = time.time()
     img = cv2.imread(image_path)
     if img is None:
         print(f"Erreur: Impossible de lire l'image {image_path}")
@@ -56,48 +66,25 @@ def preprocess_image(image_path, scale_percent=50):
     height = int(img.shape[0] * scale_percent / 100)
     resized = cv2.resize(img, (width, height))
     
-    # Version simple: retourner l'image redimensionnée sans traitement additionnel
-    # qui pourrait perturber la détection de texte
+    # Mise à jour des métriques
+    performance_metrics['preprocessing_time'] += time.time() - start_time
+    
     return resized
-    
-    # Le code ci-dessous est commenté car il peut interférer avec l'OCR
-    # Optimisation supplémentaire: améliorer le contraste pour la détection de texte
-    # Convertir en niveaux de gris
-    # gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
-    
-    # Appliquer un flou gaussien pour réduire le bruit
-    # blur = cv2.GaussianBlur(gray, (5, 5), 0)
-    
-    # Améliorer le contraste avec CLAHE (Contrast Limited Adaptive Histogram Equalization)
-    # clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    # enhanced = clahe.apply(blur)
-    
-    # Reconvertir en image couleur pour compatibilité avec EasyOCR
-    # result = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
-    
-    # return result
-
-def extract_text_from_image(image_path):
-    """Extrait le texte d'une image"""
-    start_time = time.time()
-    # Lire le texte depuis l'image
-    result = reader.readtext(image_path)
-    ocr_time = time.time() - start_time
-    print(f"OCR extraction time for {image_path}: {ocr_time:.2f} seconds")
-    
-    # Concaténer le texte extrait
-    text = "\n".join([detection[1] for detection in result])
-    return text, image_path, ocr_time
 
 def process_image_worker(image_path, scale_percent=60, fast_mode=False):
     """Fonction de travail pour le traitement parallèle"""
     # Initialiser EasyOCR avec la langue française pour chaque processus
-    # En mode CPU, réduire la complexité du modèle et activer la quantification
+    # Paramètres optimisés en fonction du mode GPU/CPU
     local_reader = easyocr.Reader(
         ['fr','en'], 
-        gpu=gpu_enabled, 
-        quantize=True,  # Activer la quantification pour accélérer sur CPU
-        recognizer=True
+        gpu=gpu_enabled,
+        # Optimisations spécifiques selon le mode
+        quantize=not gpu_enabled,  # Quantification seulement en mode CPU
+        recognizer=True,
+        # Paramètres GPU optimisés
+        download_enabled=False,    # Évite de vérifier les téléchargements à chaque fois
+        detector=True,
+        cudnn_benchmark=gpu_enabled # Optimisation CUDA si GPU activé
     )
     start_time = time.time()
     
@@ -107,11 +94,15 @@ def process_image_worker(image_path, scale_percent=60, fast_mode=False):
     if preprocessed_img is not None:
         # En mode rapide, utiliser des paramètres plus optimisés
         if fast_mode:
+            # Paramètres optimisés pour GPU ou CPU selon le mode activé
+            batch_size = 4 if gpu_enabled else 1
+            canvas_size = 2048 if gpu_enabled else 1024
+            
             result = local_reader.readtext(
                 preprocessed_img,
                 detail=0,           # Récupérer uniquement le texte
                 paragraph=True,     # Regrouper les textes en paragraphes
-                batch_size=1,       # Utiliser un batch_size de 1 sur CPU
+                batch_size=batch_size,
                 min_size=10,        # Taille minimum des textes (valeur moins stricte)
                 contrast_ths=0.3,   # Seuil de contraste
                 adjust_contrast=0.5, # Ajustement de contraste 
@@ -119,7 +110,7 @@ def process_image_worker(image_path, scale_percent=60, fast_mode=False):
                 link_threshold=0.3,  # Seuil de liaison
                 width_ths=0.5,      # Seuil de largeur moins strict
                 low_text=0.3,       # Seuil de texte faible moins strict
-                canvas_size=1024    # Taille réduite du canvas pour CPU
+                canvas_size=canvas_size    # Taille du canvas adaptée au matériel
             )
             # Convertir le résultat en texte
             text = "\n".join(result) if isinstance(result, list) else str(result)
@@ -130,11 +121,13 @@ def process_image_worker(image_path, scale_percent=60, fast_mode=False):
     else:
         # Fallback sur l'image originale en cas d'erreur
         if fast_mode:
+            # Ajuster le batch_size selon le mode GPU/CPU
+            batch_size = 4 if gpu_enabled else 1
             result = local_reader.readtext(
                 image_path,
                 detail=0,
                 paragraph=True,
-                batch_size=4,
+                batch_size=batch_size,
                 text_threshold=0.5,
                 link_threshold=0.3
             )
@@ -144,6 +137,13 @@ def process_image_worker(image_path, scale_percent=60, fast_mode=False):
             text = "\n".join([detection[1] for detection in result])
         
     ocr_time = time.time() - start_time
+    
+    # Mise à jour des métriques
+    performance_metrics['ocr_time'] += ocr_time
+    performance_metrics['images_processed'] += 1
+    
+    # Afficher le temps de traitement par image
+    print(f"Image {image_path} traitée en {ocr_time:.2f}s (GPU={gpu_enabled})")
     
     return text, str(image_path), ocr_time
 
@@ -253,11 +253,20 @@ def process_images(frames_dir, max_images=None, scale_percent=60, fast_mode=Fals
             
             image_to_hash_map[img_hash].append(img_path)
     
+    # Mettre à jour les métriques
+    performance_metrics['unique_images'] = len(unique_images)
+    
     print(f"Trouvé {len(unique_images)} images uniques sur {len(image_paths)} images totales")
     
     # Déterminer le nombre de processus à utiliser
-    # Sur CPU, utiliser moins de workers pour éviter la surcharge
-    max_workers = max(1, min(4, multiprocessing.cpu_count() // 2))
+    # Optimiser pour GPU vs CPU
+    if gpu_enabled:
+        # En mode GPU, limiter le nombre de workers pour éviter de saturer la mémoire GPU
+        max_workers = 2
+    else:
+        # En mode CPU, adapter selon le nombre de cœurs disponibles
+        max_workers = max(1, min(4, multiprocessing.cpu_count() // 2))
+    
     print(f"Utilisation de {max_workers} processus pour le traitement OCR parallèle")
     
     # Adapter le chunk_size pour les traitements
@@ -300,68 +309,87 @@ def process_images(frames_dir, max_images=None, scale_percent=60, fast_mode=Fals
             gc.collect()
     
     ocr_total_time = time.time() - ocr_start_time
-    print(f"\nTemps total d'extraction OCR: {ocr_total_time:.2f} seconds")
     
-    if not textes_extraits:
-        print("Aucun texte n'a été extrait des images.")
-        return []
+    # Regrouper les textes similaires
+    print("\nRegroupement des textes similaires...")
     
-    # Toujours poursuivre avec la correction ChatGPT, même en mode rapide
-    # Grouper les textes similaires
-    print("\nGroupement des textes similaires...")
-    group_start_time = time.time()
-    grouped_texts = group_similar_texts(textes_extraits)
-    group_time = time.time() - group_start_time
-    print(f"{len(grouped_texts)} groupes de textes identifiés en {group_time:.2f} seconds")
-    
-    corrected_texts = []
-    
-    # Mesurer le temps de correction GPT total
-    gpt_start_time = time.time()
-    
-    # Traiter chaque groupe de textes
-    for i, group in enumerate(grouped_texts):
-        print(f"\nTraitement du groupe {i+1} ({len(group)} textes similaires)")
+    if textes_extraits:
+        # Utiliser un seuil de similitude (0.7 est un bon compromis)
+        groupes_textes = group_similar_texts(textes_extraits, threshold=0.7)
+        print(f"{len(groupes_textes)} groupes de textes similaires identifiés")
         
-        # Afficher un exemple de texte du groupe
-        sample = group[0][:50] + "..." if len(group[0]) > 50 else group[0]
-        print(f"Exemple: {sample}")
+        # Correction des groupes avec ChatGPT
+        results = []
         
-        # Corriger le groupe de textes avec ChatGPT
-        corrected = correct_text_with_chatgpt(group)
+        for i, groupe in enumerate(groupes_textes):
+            print(f"\nTraitement du groupe {i+1}/{len(groupes_textes)}")
+            
+            if len(groupe) > 1:
+                # Pour les groupes de textes similaires, utiliser ChatGPT pour obtenir la meilleure version
+                print(f"Correction de {len(groupe)} textes similaires avec ChatGPT")
+                try:
+                    corrected_text = correct_text_with_chatgpt(groupe)
+                    
+                    # Trouver l'image source représentative (prendre celle du premier texte du groupe)
+                    source_image = frames_sources.get(groupe[0], "inconnu")
+                    
+                    print(f"Texte corrigé: {corrected_text[:50]}..." if len(corrected_text) > 50 else f"Texte corrigé: {corrected_text}")
+                    results.append({
+                        "text": corrected_text,
+                        "text_type": "corrected",
+                        "image": source_image,
+                        "confidence": 0.95,  # Confiance élevée car corrigé par IA
+                        "original_texts": groupe,
+                        "is_significant": True
+                    })
+                except Exception as e:
+                    print(f"Erreur lors de la correction avec ChatGPT: {str(e)}")
+                    
+                    # En cas d'erreur, utiliser le premier texte du groupe
+                    source_image = frames_sources.get(groupe[0], "inconnu")
+                    results.append({
+                        "text": groupe[0],
+                        "text_type": "raw",
+                        "image": source_image,
+                        "confidence": 0.8,  # Confiance plus faible car non corrigé
+                        "is_significant": True
+                    })
+            else:
+                # Pour les textes uniques, les ajouter tels quels
+                text = groupe[0]
+                source_image = frames_sources.get(text, "inconnu")
+                
+                # Filtrer les textes non significatifs (trop courts ou sans sens)
+                is_significant = len(text.strip()) > 3  # Plus de 3 caractères
+                
+                results.append({
+                    "text": text,
+                    "text_type": "raw",
+                    "image": source_image,
+                    "confidence": 0.7,  # Confiance moyenne pour les textes non corrigés
+                    "is_significant": is_significant
+                })
+    else:
+        results = []
         
-        # Récupérer les frames sources pour ce groupe
-        source_frames = [frames_sources[text] for text in group if text in frames_sources]
-        
-        # Stocker le résultat - SANS extraire les hashtags qui seront gérés par le serveur
-        corrected_texts.append({
-            "text": corrected,
-            "source_frames": source_frames,
-            "is_corrected": True
-        })
-        
-        print(f"Texte corrigé: {corrected[:50]}..." if len(corrected) > 50 else f"Texte corrigé: {corrected}")
-    
-    gpt_total_time = time.time() - gpt_start_time
-    print(f"\nTemps total de correction GPT: {gpt_total_time:.2f} seconds")
-    
-    # Afficher tous les textes corrigés
-    print("\n=== Textes finaux corrigés ===\n")
-    for i, result in enumerate(corrected_texts):
-        print(f"Texte {i+1}: {result['text']}")
-        print(f"Frames sources: {', '.join(result['source_frames'])}")
-        print("-" * 40)
-    
     total_time = time.time() - total_start_time
-    print("=" * 50)
-    print(f"RÉSUMÉ DES PERFORMANCES:")
-    print(f"Temps total de traitement: {total_time:.2f} seconds")
-    print(f"Temps d'extraction OCR: {ocr_total_time:.2f} seconds ({ocr_total_time/total_time*100:.1f}%)")
-    print(f"Temps de groupement: {group_time:.2f} seconds ({group_time/total_time*100:.1f}%)")
-    print(f"Temps de correction GPT: {gpt_total_time:.2f} seconds ({gpt_total_time/total_time*100:.1f}%)")
-    print("=" * 50)
     
-    return corrected_texts
+    # Mettre à jour les métriques finales
+    performance_metrics['total_time'] = total_time
+    
+    # Afficher les statistiques
+    print("\n--- Statistiques de performance ---")
+    print(f"Mode GPU: {gpu_enabled}")
+    print(f"Images totales: {len(image_paths)}")
+    print(f"Images uniques: {performance_metrics['unique_images']}")
+    print(f"Temps de prétraitement: {performance_metrics['preprocessing_time']:.2f}s")
+    print(f"Temps OCR: {performance_metrics['ocr_time']:.2f}s")
+    print(f"Temps total: {performance_metrics['total_time']:.2f}s")
+    if performance_metrics['images_processed'] > 0:
+        print(f"Moyenne par image: {performance_metrics['ocr_time']/performance_metrics['images_processed']:.2f}s")
+    print("-----------------------------------")
+    
+    return results
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Analyse OCR des images avec EasyOCR et OpenAI')
@@ -380,15 +408,21 @@ if __name__ == "__main__":
     sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer)
     
     # Mise à jour de la configuration GPU en fonction de l'argument passé
-    gpu_flag = os.getenv('EASYOCR_GPU_ENABLED', args.gpu).lower() == 'true'
+    gpu_flag = args.gpu.lower() == 'true'
+    # Écraser la variable globale avec la valeur passée en argument
+    gpu_enabled = gpu_flag
+    
     print(f"GPU activé pour EasyOCR: {gpu_flag}")
     
     frames_dir = args.frames_dir
     results = process_images(frames_dir, max_images=args.max_images, scale_percent=args.scale, fast_mode=args.fast)
     
+    # Créer le dossier ocr s'il n'existe pas
+    output_dir = os.path.join(os.path.dirname(frames_dir), "ocr")
+    os.makedirs(output_dir, exist_ok=True)
+    
     # Écrire les résultats dans un fichier JSON pour que le serveur Node.js puisse les lire
-    import json
-    output_file = os.path.join(frames_dir, "..", "ocr", "easyocr_results.json")
+    output_file = os.path.join(output_dir, "easyocr_results.json")
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
     

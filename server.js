@@ -450,7 +450,10 @@ async function processImagesWithEasyOCR(language = "fra") {
 
     // Ajouter les variables d'environnement du fichier .env
     // Elles seront transmises au script Python
-    console.log("GPU enabled:", process.env.EASYOCR_GPU_ENABLED);
+    console.log(
+      "GPU enabled (à partir de .env):",
+      process.env.EASYOCR_GPU_ENABLED
+    );
     console.log("Debug mode:", process.env.DEBUG_MODE);
 
     // Options d'optimisation pour l'OCR
@@ -458,20 +461,21 @@ async function processImagesWithEasyOCR(language = "fra") {
     const maxImages = 15; // Traiter plus d'images
     const fastMode = true; // Toujours utiliser le mode rapide
 
-    // Forcer l'utilisation du CPU pour EasyOCR car plus rapide dans ce cas
-    console.log("GPU enabled (original):", process.env.EASYOCR_GPU_ENABLED);
-    process.env.EASYOCR_GPU_ENABLED = "False";
-    console.log("GPU enabled (forcé CPU):", process.env.EASYOCR_GPU_ENABLED);
+    // Détection automatique du meilleur mode (GPU/CPU)
+    // Nous allons essayer d'utiliser le GPU s'il est disponible dans la configuration
+    const useGPU = process.env.EASYOCR_GPU_ENABLED === "True";
+    const gpuFlag = useGPU.toString();
 
     console.log(
-      `Options d'optimisation OCR: redimensionnement=${scale}%, max-images=${maxImages}, mode-rapide=${fastMode}, GPU=False`
+      `Options d'optimisation OCR: redimensionnement=${scale}%, max-images=${maxImages}, mode-rapide=${fastMode}, GPU=${gpuFlag}`
     );
-
-    const gpuFlag = "False"; // Forcer CPU
 
     console.log(
       `Exécution avec Conda: ${condaPath} run -n ${condaEnv} python "${pythonScript}" "./frames" --lang ${language} --gpu ${gpuFlag}`
     );
+
+    // Mesurer le temps de traitement pour la comparaison de performance
+    const startTime = Date.now();
 
     // Utiliser spawn au lieu de exec
     const pythonProcess = spawn(
@@ -513,7 +517,10 @@ async function processImagesWithEasyOCR(language = "fra") {
 
     // Gérer la terminaison du processus
     pythonProcess.on("close", (code) => {
-      console.log(`Processus Python terminé avec le code: ${code}`);
+      const processingTime = ((Date.now() - startTime) / 1000).toFixed(2);
+      console.log(
+        `Processus Python terminé avec le code: ${code} en ${processingTime} secondes`
+      );
 
       if (code !== 0) {
         console.error(
@@ -533,10 +540,11 @@ async function processImagesWithEasyOCR(language = "fra") {
           batchFile,
           `@echo off
 call conda activate ezmeme
-python "${pythonScript}" "./frames" --lang ${language} --gpu False --scale ${scale} --max-images ${maxImages} --fast
+python "${pythonScript}" "./frames" --lang ${language} --gpu ${gpuFlag} --scale ${scale} --max-images ${maxImages} --fast
 exit /b %ERRORLEVEL%`
         );
 
+        const fallbackStartTime = Date.now();
         const backupProcess = spawn("cmd.exe", ["/c", batchFile], { env });
 
         let backupStdout = "";
@@ -553,6 +561,14 @@ exit /b %ERRORLEVEL%`
         });
 
         backupProcess.on("close", (backupCode) => {
+          const fallbackTime = (
+            (Date.now() - fallbackStartTime) /
+            1000
+          ).toFixed(2);
+          console.log(
+            `Processus Python de secours terminé en ${fallbackTime} secondes`
+          );
+
           // Supprimer le fichier batch temporaire
           try {
             fs.unlinkSync(batchFile);
@@ -635,7 +651,9 @@ exit /b %ERRORLEVEL%`
       } else {
         try {
           const results = JSON.parse(fs.readFileSync(resultsPath, "utf8"));
-          console.log(`Résultats EasyOCR: ${results.length} éléments trouvés`);
+          console.log(
+            `Résultats EasyOCR: ${results.length} éléments trouvés en ${processingTime}s`
+          );
 
           // Afficher quelques résultats pour le débogage
           if (results.length > 0) {
@@ -667,7 +685,7 @@ exit /b %ERRORLEVEL%`
         batchFile,
         `@echo off
 call conda activate ezmeme
-python "${pythonScript}" "./frames" --lang ${language} --gpu False --scale ${scale} --max-images ${maxImages} --fast
+python "${pythonScript}" "./frames" --lang ${language} --gpu ${gpuFlag} --scale ${scale} --max-images ${maxImages} --fast
 exit /b %ERRORLEVEL%`
       );
 
@@ -926,6 +944,13 @@ async function directDownloadVideo(url) {
       audio: {},
     };
 
+    // Variables pour suivre l'état du chargement
+    let hasVideoSegments = false;
+    let hasAudioSegments = false;
+    let segmentCheckInterval = null;
+    let maxWaitTime = 30000; // Temps d'attente maximum (30 secondes)
+    let waitStartTime = Date.now();
+
     // Intercepter les réponses pour capturer les segments
     page.on("response", async (response) => {
       try {
@@ -945,8 +970,10 @@ async function directDownloadVideo(url) {
             url.includes("t16/f2/m69")
           ) {
             type = "audio";
+            hasAudioSegments = true;
           } else if (url.includes("t2/f2/m86") || buffer.length > 100000) {
             type = "video";
+            hasVideoSegments = true;
           }
 
           if (type) {
@@ -955,6 +982,13 @@ async function directDownloadVideo(url) {
               segments[type][baseUrl] = [];
             }
             segments[type][baseUrl].push({ buffer, bytestart, byteend });
+
+            // Afficher l'état du chargement
+            console.log(
+              `Segment ${type} ajouté, total: vidéo=${
+                Object.keys(segments.video).length
+              } segments, audio=${Object.keys(segments.audio).length} segments`
+            );
           }
         }
       } catch (e) {
@@ -976,8 +1010,53 @@ async function directDownloadVideo(url) {
         }
       });
 
-      // Attendre le chargement complet
-      await page.waitForTimeout(10000);
+      // Créer une promesse qui sera résolue quand les segments seront chargés
+      const waitForSegments = new Promise((resolve, reject) => {
+        // Fonction pour vérifier si on a suffisamment de segments
+        const checkSegments = () => {
+          const hasEnoughVideo = Object.keys(segments.video).length > 0;
+          const hasEnoughAudio = Object.keys(segments.audio).length > 0;
+          const timeElapsed = Date.now() - waitStartTime;
+
+          // Afficher le statut toutes les 2 secondes
+          if (timeElapsed % 2000 < 100) {
+            console.log(
+              `Statut du chargement: vidéo=${
+                hasEnoughVideo ? "OK" : "En attente"
+              }, audio=${
+                hasEnoughAudio ? "OK" : "En attente"
+              }, temps écoulé=${Math.round(timeElapsed / 1000)}s`
+            );
+          }
+
+          // Si on a assez de segments vidéo et audio, on peut continuer
+          if (hasEnoughVideo && hasEnoughAudio) {
+            console.log(
+              `Segments vidéo et audio chargés après ${Math.round(
+                timeElapsed / 1000
+              )} secondes`
+            );
+            clearInterval(segmentCheckInterval);
+            resolve();
+          }
+          // Si on a dépassé le temps d'attente maximum, on essaie quand même de continuer
+          else if (timeElapsed > maxWaitTime) {
+            console.log(
+              `Temps maximum dépassé (${
+                maxWaitTime / 1000
+              }s). Tentative avec les segments disponibles...`
+            );
+            clearInterval(segmentCheckInterval);
+            resolve();
+          }
+        };
+
+        // Vérifier l'état des segments toutes les 500ms
+        segmentCheckInterval = setInterval(checkSegments, 500);
+      });
+
+      // Attendre que les segments soient chargés
+      await waitForSegments;
 
       // Combiner les segments
       const combineSegments = (typeSegments) => {
@@ -995,6 +1074,10 @@ async function directDownloadVideo(url) {
 
       const videoBuffer = combineSegments(segments.video);
       const audioBuffer = combineSegments(segments.audio);
+
+      console.log(
+        `Taille des buffers: vidéo=${videoBuffer.length} octets, audio=${audioBuffer.length} octets`
+      );
 
       // Fusion directe avec ffmpeg
       if (videoBuffer.length > 0 && audioBuffer.length > 0) {
@@ -1120,6 +1203,10 @@ async function directDownloadVideo(url) {
       console.error("Erreur lors du téléchargement:", error);
       throw error;
     } finally {
+      // S'assurer que l'intervalle est arrêté
+      if (segmentCheckInterval) {
+        clearInterval(segmentCheckInterval);
+      }
       await browser.close();
     }
   } catch (error) {
@@ -1144,6 +1231,7 @@ app.post("/process-all", async (req, res) => {
       });
     }
 
+    const startTotalTime = Date.now();
     console.log("Traitement complet pour:", url);
 
     // Nettoyer uniquement les dossiers frames et ocr, pas downloads
@@ -1170,15 +1258,21 @@ app.post("/process-all", async (req, res) => {
       // Lancer un tableau de promesses pour exécuter certaines tâches en parallèle
       const promises = [];
 
-      // Promesse 1: Téléchargement de la vidéo (prioritaire)
-      const downloadPromise = (async () => {
+      // Promesse 1: Téléchargement de la vidéo (prioritaire) et préparation des frames
+      const downloadAndPreparePromise = (async () => {
         // Vérifier si les fichiers existent déjà
         if (fs.existsSync(videoPath) && fs.existsSync(audioPath)) {
           console.log("Vidéo et audio déjà disponibles, réutilisation...");
           mediasExist = true;
         } else {
           console.log("Téléchargement de la vidéo et de l'audio...");
+          const downloadStartTime = Date.now();
           const videoResult = await directDownloadVideo(url);
+          const downloadTime = (
+            (Date.now() - downloadStartTime) /
+            1000
+          ).toFixed(2);
+          console.log(`Téléchargement terminé en ${downloadTime}s`);
 
           if (!videoResult.success) {
             throw new Error("Échec du téléchargement de la vidéo");
@@ -1197,16 +1291,31 @@ app.post("/process-all", async (req, res) => {
           videoUrl: results.videoUrl,
           audioUrl: results.audioUrl,
         });
+
+        // Démarrer l'extraction des frames immédiatement après le téléchargement
+        // pour accélérer le processus global
+        console.log("Extraction des frames en parallèle...");
+        const extractStartTime = Date.now();
+        await extractFrames(videoPath);
+        const extractTime = ((Date.now() - extractStartTime) / 1000).toFixed(2);
+        console.log(`Extraction des frames terminée en ${extractTime}s`);
       })();
 
       // Ajouter la promesse de téléchargement au tableau
-      promises.push(downloadPromise);
+      promises.push(downloadAndPreparePromise);
 
       // Promesse 2: Extraction des métadonnées (peut se faire en parallèle)
       const metadataPromise = (async () => {
         console.log("Extraction des métadonnées en parallèle...");
+        const metadataStartTime = Date.now();
         try {
           const metadataResult = await scrapeInstagram(url);
+          const metadataTime = (
+            (Date.now() - metadataStartTime) /
+            1000
+          ).toFixed(2);
+          console.log(`Métadonnées extraites en ${metadataTime}s`);
+
           if (metadataResult) {
             results.description = metadataResult.description || "";
             results.hashtags = metadataResult.hashtags || [];
@@ -1226,12 +1335,8 @@ app.post("/process-all", async (req, res) => {
       // Ajouter la promesse d'extraction des métadonnées au tableau
       promises.push(metadataPromise);
 
-      // Attendre que le téléchargement et l'extraction des métadonnées soient terminés
+      // Attendre que le téléchargement, l'extraction des frames et des métadonnées soient terminés
       await Promise.all(promises);
-
-      // Étape 2: Extraire les frames de la vidéo téléchargée
-      console.log("2. Extraction des frames...");
-      await extractFrames(videoPath);
 
       // Vérifier que les frames ont été extraites
       const framesDir = "./frames";
@@ -1252,7 +1357,10 @@ app.post("/process-all", async (req, res) => {
       if (frames.length > 0) {
         // Étape 3: Traitement OCR des frames
         console.log("3. Analyse OCR du texte dans la vidéo...");
+        const ocrStartTime = Date.now();
         await processImagesWithEasyOCR("fra");
+        const ocrTime = ((Date.now() - ocrStartTime) / 1000).toFixed(2);
+        console.log(`Traitement OCR terminé en ${ocrTime}s`);
 
         // Vérifier les résultats OCR
         const resultsPath = path.join("ocr", "easyocr_results.json");
@@ -1301,8 +1409,16 @@ app.post("/process-all", async (req, res) => {
         console.warn("Aucune frame extraite pour l'OCR");
       }
 
+      // Calculer le temps total de traitement
+      const totalProcessingTime = (
+        (Date.now() - startTotalTime) /
+        1000
+      ).toFixed(2);
+
       // Renvoyer tous les résultats collectés
-      console.log("Traitement complet terminé, envoi des résultats...");
+      console.log(
+        `Traitement complet terminé en ${totalProcessingTime}s, envoi des résultats...`
+      );
       return res.json(results);
     } catch (processingError) {
       console.error("Erreur pendant le traitement:", processingError);

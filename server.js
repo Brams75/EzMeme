@@ -12,6 +12,8 @@ import multer from "multer";
 import { spawn } from "child_process";
 import fetch from "node-fetch";
 import dotenv from "dotenv";
+import { Readable } from "stream";
+import os from "os";
 
 // Charger les variables d'environnement depuis le fichier .env
 dotenv.config();
@@ -127,32 +129,233 @@ function cleanDirectories(dirsToClean = ["frames", "ocr"]) {
   console.log(`Nettoyage des dossiers: ${dirsToClean.join(", ")}...`);
   dirsToClean.forEach((dir) => {
     if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir);
+      fs.mkdirSync(dir, { recursive: true });
       console.log(`Dossier ${dir} créé`);
       return;
     }
 
     try {
       const files = fs.readdirSync(dir);
+      let successCount = 0;
+      let errorCount = 0;
+
       for (const file of files) {
-        try {
-          const filePath = path.join(dir, file);
-          if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
-            console.log(`Fichier supprimé: ${filePath}`);
+        const filePath = path.join(dir, file);
+
+        // Fonction pour tenter la suppression avec retry
+        const attemptDelete = (retryCount = 0, maxRetries = 3) => {
+          try {
+            if (fs.existsSync(filePath)) {
+              const fileStats = fs.statSync(filePath);
+
+              // Vérifier si c'est un dossier
+              if (fileStats.isDirectory()) {
+                // Supprimer récursivement si c'est un dossier
+                fs.rmdirSync(filePath, { recursive: true, force: true });
+              } else {
+                // Supprimer si c'est un fichier
+                fs.unlinkSync(filePath);
+              }
+
+              successCount++;
+            }
+          } catch (e) {
+            // Si l'erreur indique que le fichier est utilisé par un autre processus
+            if (
+              e.code === "EBUSY" ||
+              e.code === "EPERM" ||
+              e.code === "EACCES"
+            ) {
+              if (retryCount < maxRetries) {
+                // Attendre un peu et réessayer
+                console.warn(
+                  `Fichier ${file} occupé, nouvelle tentative ${
+                    retryCount + 1
+                  }/${maxRetries}`
+                );
+                setTimeout(
+                  () => attemptDelete(retryCount + 1, maxRetries),
+                  500
+                );
+                return;
+              }
+            }
+
+            console.warn(
+              `Échec final de suppression du fichier ${file} dans ${dir}: ${e.message}`
+            );
+            errorCount++;
           }
-        } catch (e) {
-          console.warn(
-            `Erreur lors de la suppression du fichier ${file} dans ${dir}: ${e.message}`
-          );
-        }
+        };
+
+        // Démarrer la première tentative
+        attemptDelete();
       }
-      console.log(`Dossier ${dir} nettoyé`);
+
+      console.log(
+        `Dossier ${dir} nettoyé: ${successCount} fichiers supprimés, ${errorCount} erreurs`
+      );
     } catch (e) {
       console.error(`Erreur lors du nettoyage du dossier ${dir}: ${e.message}`);
     }
   });
 }
+
+// Fonction pour nettoyer les fichiers anciens dans le dossier downloads
+function cleanDownloadsDirectory(maxAgeHours = 24) {
+  console.log(
+    `Nettoyage des fichiers de plus de ${maxAgeHours} heures dans downloads...`
+  );
+  const downloadsDir = path.join(__dirname, "downloads");
+
+  if (!fs.existsSync(downloadsDir)) {
+    console.log(`Le dossier ${downloadsDir} n'existe pas encore`);
+    return;
+  }
+
+  try {
+    const files = fs.readdirSync(downloadsDir);
+    const now = Date.now();
+    let cleanedCount = 0;
+
+    files.forEach((file) => {
+      const filePath = path.join(downloadsDir, file);
+
+      try {
+        const stats = fs.statSync(filePath);
+        const fileAge = now - stats.mtimeMs;
+        const fileAgeHours = fileAge / (1000 * 60 * 60);
+
+        // Supprimer les fichiers plus anciens que maxAgeHours
+        if (fileAgeHours > maxAgeHours) {
+          fs.unlinkSync(filePath);
+          cleanedCount++;
+          console.log(
+            `Fichier ancien supprimé: ${file} (${Math.round(fileAgeHours)}h)`
+          );
+        }
+      } catch (err) {
+        console.warn(
+          `Erreur lors de la vérification/suppression du fichier ${file}: ${err.message}`
+        );
+      }
+    });
+
+    console.log(
+      `Nettoyage terminé: ${cleanedCount} fichiers supprimés de downloads`
+    );
+  } catch (err) {
+    console.error(
+      `Erreur lors du nettoyage du dossier downloads: ${err.message}`
+    );
+  }
+}
+
+// Lancer un nettoyage initial au démarrage du serveur
+cleanDownloadsDirectory();
+
+// Programmer un nettoyage périodique toutes les 12 heures
+setInterval(() => {
+  cleanDownloadsDirectory();
+}, 12 * 60 * 60 * 1000);
+
+// Ajouter une fonction de gestion des fichiers de logs OCR
+// Ajouter après cleanDownloadsDirectory
+
+// Fonction pour gérer la rotation des fichiers de logs OCR
+function manageOcrLogs(maxFiles = 5, maxSizeMB = 10) {
+  console.log(
+    `Rotation des fichiers de logs OCR (max ${maxFiles} fichiers, ${maxSizeMB}MB max)...`
+  );
+  const ocrDir = path.join(__dirname, "ocr");
+
+  if (!fs.existsSync(ocrDir)) {
+    console.log(`Le dossier OCR ${ocrDir} n'existe pas encore`);
+    return;
+  }
+
+  try {
+    // Traiter les fichiers de logs
+    const logExtensions = [".txt"];
+    const files = fs
+      .readdirSync(ocrDir)
+      .filter((file) => logExtensions.some((ext) => file.endsWith(ext)))
+      .map((file) => {
+        const filePath = path.join(ocrDir, file);
+        const stats = fs.statSync(filePath);
+        return {
+          name: file,
+          path: filePath,
+          size: stats.size,
+          mtime: stats.mtime.getTime(),
+        };
+      });
+
+    // Vérifier les fichiers trop volumineux
+    let oversizedCount = 0;
+    files.forEach((file) => {
+      const fileSizeMB = file.size / (1024 * 1024);
+      if (fileSizeMB > maxSizeMB) {
+        try {
+          // Pour les fichiers trop gros, garder uniquement les dernières lignes
+          const content = fs.readFileSync(file.path, "utf8");
+          const lines = content.split("\n");
+
+          // Garder les 1000 dernières lignes uniquement
+          if (lines.length > 1000) {
+            const truncatedContent = lines.slice(-1000).join("\n");
+            fs.writeFileSync(file.path, truncatedContent);
+            oversizedCount++;
+            console.log(
+              `Fichier ${file.name} tronqué (${fileSizeMB.toFixed(2)}MB -> ~${
+                truncatedContent.length / 1024 / 1024
+              }MB)`
+            );
+          }
+        } catch (err) {
+          console.warn(
+            `Erreur lors de la troncature du fichier ${file.name}: ${err.message}`
+          );
+        }
+      }
+    });
+
+    // Si trop de fichiers, supprimer les plus anciens
+    if (files.length > maxFiles) {
+      // Trier par date (plus ancien en premier)
+      files.sort((a, b) => a.mtime - b.mtime);
+
+      // Supprimer les fichiers les plus anciens
+      const toDelete = files.slice(0, files.length - maxFiles);
+      toDelete.forEach((file) => {
+        try {
+          fs.unlinkSync(file.path);
+          console.log(`Ancien fichier de log supprimé: ${file.name}`);
+        } catch (err) {
+          console.warn(
+            `Erreur lors de la suppression du fichier ${file.name}: ${err.message}`
+          );
+        }
+      });
+    }
+
+    console.log(
+      `Rotation des logs OCR terminée: ${oversizedCount} fichiers tronqués, ${
+        files.length > maxFiles ? files.length - maxFiles : 0
+      } fichiers supprimés`
+    );
+  } catch (err) {
+    console.error(`Erreur lors de la rotation des logs OCR: ${err.message}`);
+  }
+}
+
+// Appeler cette fonction au démarrage et périodiquement
+manageOcrLogs();
+
+// Ajouter la rotation des logs OCR dans le même intervalle que le nettoyage des téléchargements
+setInterval(() => {
+  manageOcrLogs();
+}, 12 * 60 * 60 * 1000);
 
 // Fonction pour extraire les données Instagram
 async function scrapeInstagram(url) {
@@ -531,206 +734,178 @@ async function processImagesWithEasyOCR(language = "fra") {
         );
 
         // Créer un script batch temporaire pour activer conda et exécuter le script Python
-        const batchFile = path.join(__dirname, "temp_run_easyocr.bat");
-        fs.writeFileSync(
-          batchFile,
-          `@echo off
-call conda activate ezmeme
-python "${pythonScript}" "./frames" --lang ${language} --gpu ${gpuFlag} --scale ${scale} --max-images ${maxImages} --fast
-exit /b %ERRORLEVEL%`
+        const timestamp = Date.now();
+        const batchFile = path.join(
+          os.tmpdir(),
+          `easyocr_run_${timestamp}.bat`
         );
 
-        const fallbackStartTime = Date.now();
-        const backupProcess = spawn("cmd.exe", ["/c", batchFile], { env });
-
-        let backupStdout = "";
-        let backupStderr = "";
-
-        backupProcess.stdout.on("data", (data) => {
-          backupStdout += data.toString();
-          console.log(`Sortie Python (secours): ${data}`);
-        });
-
-        backupProcess.stderr.on("data", (data) => {
-          backupStderr += data.toString();
-          console.error(`Erreur Python (secours): ${data}`);
-        });
-
-        backupProcess.on("close", (backupCode) => {
-          const fallbackTime = (
-            (Date.now() - fallbackStartTime) /
-            1000
-          ).toFixed(2);
-          console.log(
-            `Processus Python de secours terminé en ${fallbackTime} secondes`
+        try {
+          fs.writeFileSync(
+            batchFile,
+            `@echo off
+call conda activate ezmeme
+python "${pythonScript}" "./frames" --lang ${language} --gpu ${gpuFlag} --scale ${scale} --max-images ${maxImages} --fast
+```
           );
 
-          // Supprimer le fichier batch temporaire
-          try {
-            fs.unlinkSync(batchFile);
-          } catch (e) {
-            console.warn(
-              "Erreur lors de la suppression du batch temporaire:",
-              e
-            );
-          }
+          // Exécuter le script batch
+          const batchProcess = spawn(batchFile, [], { shell: true });
 
-          if (backupCode !== 0) {
-            console.error(
-              "La tentative de secours a également échoué:",
-              backupCode
-            );
+          batchProcess.stdout.on("data", (data) => {
+            console.log(`Sortie batch: ${data}`);
+          });
 
-            // Créer un fichier de résultats vide pour éviter les erreurs lors de la lecture
-            try {
-              const emptyResults = [];
-              const ocrDir = path.join(__dirname, "ocr");
-              if (!fs.existsSync(ocrDir)) {
-                fs.mkdirSync(ocrDir, { recursive: true });
-              }
-              fs.writeFileSync(
-                path.join(ocrDir, "easyocr_results.json"),
-                JSON.stringify(emptyResults)
-              );
-              console.log("Fichier de résultats vide créé");
-            } catch (e) {
+          batchProcess.stderr.on("data", (data) => {
+            console.error(`Erreur batch: ${data}`);
+          });
+
+          batchProcess.on("close", (batchCode) => {
+            console.log(`Script batch terminé avec le code: ${batchCode}`);
+            if (batchCode !== 0) {
               console.error(
-                "Erreur lors de la création du fichier de résultats vide:",
-                e
+                "Erreur lors de l'exécution du script batch de secours"
               );
             }
-
-            reject(
-              new Error(
-                `Échec de l'exécution d'EasyOCR avec toutes les méthodes`
-              )
-            );
-          } else {
-            console.log("La tentative de secours a réussi!");
-            // Sauvegarder la sortie complète pour le débogage
-            fs.writeFileSync(
-              path.join("ocr", "easyocr_output.txt"),
-              backupStdout
-            );
-            fs.writeFileSync(
-              path.join("ocr", "easyocr_error.txt"),
-              backupStderr
-            );
-            resolve();
-          }
-        });
-
-        return;
-      }
-
-      // Vérifier que le fichier de résultats existe
-      const resultsPath = path.join("ocr", "easyocr_results.json");
-      if (!fs.existsSync(resultsPath)) {
-        console.error("Fichier de résultats JSON non créé par EasyOCR");
-        try {
-          const emptyResults = [];
-          const ocrDir = path.join(__dirname, "ocr");
-          if (!fs.existsSync(ocrDir)) {
-            fs.mkdirSync(ocrDir, { recursive: true });
-          }
-          fs.writeFileSync(
-            path.join(ocrDir, "easyocr_results.json"),
-            JSON.stringify(emptyResults)
-          );
-          console.log("Fichier de résultats vide créé");
-        } catch (e) {
+            // Supprimer le fichier batch après utilisation
+            fs.unlinkSync(batchFile);
+          });
+        } catch (err) {
           console.error(
-            "Erreur lors de la création du fichier de résultats vide:",
-            e
+            "Erreur lors de la création du script batch de secours:",
+            err
           );
         }
       } else {
-        try {
-          const results = JSON.parse(fs.readFileSync(resultsPath, "utf8"));
-          console.log(
-            `Résultats EasyOCR: ${results.length} éléments trouvés en ${processingTime}s`
-          );
-
-          // Afficher quelques résultats pour le débogage
-          if (results.length > 0) {
-            console.log("Premier résultat:", results[0]);
-          }
-        } catch (e) {
-          console.error("Erreur lors de la lecture des résultats JSON:", e);
-        }
+        // Écrire les logs OCR avec des streams
+        Promise.all([
+          writeOcrLog("easyocr_output.txt", stdout),
+          writeOcrLog("easyocr_error.txt", stderr),
+        ])
+          .then(() => {
+            console.log("Logs OCR écrits avec succès");
+            resolve();
+          })
+          .catch((err) => {
+            console.error("Erreur lors de l'écriture des logs OCR:", err);
+            reject(err);
+          });
       }
-
-      // Sauvegarder la sortie complète pour le débogage
-      fs.writeFileSync(path.join("ocr", "easyocr_output.txt"), stdout);
-      fs.writeFileSync(path.join("ocr", "easyocr_error.txt"), stderr);
-
-      // La route /ocr lira directement le fichier JSON généré
-      resolve();
     });
+  });
+}
 
-    // Gérer les erreurs de lancement du processus
-    pythonProcess.on("error", (err) => {
-      console.error("Erreur lors du lancement du processus Python:", err);
+// Fonction utilitaire pour écrire les logs OCR en utilisant des streams
+function writeOcrLog(logFileName, content) {
+  const logPath = path.join("ocr", logFileName);
 
-      // Tentative de secours si le premier appel échoue - utiliser un fichier batch
-      console.log("Erreur avec conda run, tentative avec script batch...");
+  // S'assurer que le dossier ocr existe
+  if (!fs.existsSync("ocr")) {
+    fs.mkdirSync("ocr", { recursive: true });
+  }
 
-      // Créer un script batch temporaire pour activer conda et exécuter le script Python
-      const batchFile = path.join(__dirname, "temp_run_easyocr.bat");
-      fs.writeFileSync(
-        batchFile,
-        `@echo off
-call conda activate ezmeme
-python "${pythonScript}" "./frames" --lang ${language} --gpu ${gpuFlag} --scale ${scale} --max-images ${maxImages} --fast
-exit /b %ERRORLEVEL%`
-      );
+  return new Promise((resolve, reject) => {
+    try {
+      // Créer un stream d'écriture
+      const writeStream = fs.createWriteStream(logPath);
 
-      const backupProcess = spawn("cmd.exe", ["/c", batchFile], { env });
-
-      let backupStdout = "";
-      let backupStderr = "";
-
-      backupProcess.stdout.on("data", (data) => {
-        backupStdout += data.toString();
-        console.log(`Sortie Python (secours): ${data}`);
+      // Gérer les événements du stream
+      writeStream.on("finish", () => {
+        console.log(`Log OCR écrit avec succès: ${logFileName}`);
+        resolve();
       });
 
-      backupProcess.stderr.on("data", (data) => {
-        backupStderr += data.toString();
-        console.error(`Erreur Python (secours): ${data}`);
-      });
-
-      backupProcess.on("close", (backupCode) => {
-        // Supprimer le fichier batch temporaire
-        try {
-          fs.unlinkSync(batchFile);
-        } catch (e) {
-          console.warn("Erreur lors de la suppression du batch temporaire:", e);
-        }
-
-        if (backupCode !== 0) {
-          console.error(
-            "La tentative de secours a également échoué:",
-            backupCode
-          );
-          reject(err);
-        } else {
-          console.log("La tentative de secours a réussi!");
-          // Sauvegarder la sortie complète pour le débogage
-          fs.writeFileSync(
-            path.join("ocr", "easyocr_output.txt"),
-            backupStdout
-          );
-          fs.writeFileSync(path.join("ocr", "easyocr_error.txt"), backupStderr);
-          resolve();
-        }
-      });
-
-      backupProcess.on("error", (backupErr) => {
-        console.error("Toutes les tentatives ont échoué:", backupErr);
+      writeStream.on("error", (err) => {
+        console.error(`Erreur d'écriture du log OCR ${logFileName}:`, err);
         reject(err);
       });
-    });
+
+      // Écrire le contenu et fermer le stream
+      writeStream.write(content);
+      writeStream.end();
+    } catch (err) {
+      console.error(
+        `Erreur lors de la création du stream pour ${logFileName}:`,
+        err
+      );
+      reject(err);
+    }
+  });
+}
+
+// Fonction pour exécuter un script batch temporaire avec conda
+function runCondaBatchScript(command, scriptName = "conda_script") {
+  return new Promise((resolve, reject) => {
+    const timestamp = Date.now();
+    const batchFile = path.join(os.tmpdir(), `${scriptName}_${timestamp}.bat`);
+
+    try {
+      // Créer le fichier batch
+      fs.writeFileSync(
+        batchFile,
+        `@echo off\n${command}\nexit /b %ERRORLEVEL%`
+      );
+      console.log(`Script batch temporaire créé: ${batchFile}`);
+
+      // Exécuter le script
+      const batchProcess = spawn(batchFile, [], { shell: true });
+      let stdout = "";
+      let stderr = "";
+
+      batchProcess.stdout.on("data", (data) => {
+        const output = data.toString();
+        stdout += output;
+        console.log(`[${scriptName}] ${output.trim()}`);
+      });
+
+      batchProcess.stderr.on("data", (data) => {
+        const output = data.toString();
+        stderr += output;
+        console.error(`[${scriptName}] Erreur: ${output.trim()}`);
+      });
+
+      batchProcess.on("close", (code) => {
+        console.log(`Script batch ${scriptName} terminé avec code: ${code}`);
+
+        // Toujours essayer de supprimer le fichier batch
+        try {
+          fs.unlinkSync(batchFile);
+          console.log(`Script batch temporaire supprimé: ${batchFile}`);
+        } catch (err) {
+          console.warn(
+            `Erreur lors de la suppression du script batch: ${err.message}`
+          );
+        }
+
+        if (code === 0) {
+          resolve({ code, stdout, stderr });
+        } else {
+          reject(new Error(`Script batch échoué avec code ${code}`));
+        }
+      });
+
+      batchProcess.on("error", (err) => {
+        console.error(
+          `Erreur lors de l'exécution du script batch: ${err.message}`
+        );
+
+        // Nettoyer le fichier batch en cas d'erreur
+        try {
+          fs.unlinkSync(batchFile);
+        } catch (cleanupErr) {
+          console.warn(
+            `Erreur lors du nettoyage du fichier batch: ${cleanupErr.message}`
+          );
+        }
+
+        reject(err);
+      });
+    } catch (err) {
+      console.error(
+        `Erreur lors de la création du script batch: ${err.message}`
+      );
+      reject(err);
+    }
   });
 }
 
@@ -1077,109 +1252,73 @@ async function directDownloadVideo(url) {
 
       // Fusion directe avec ffmpeg
       if (videoBuffer.length > 0 && audioBuffer.length > 0) {
-        // Créer des fichiers temporaires
-        const tempVideoPath = path.join(outputDir, "_temp_video.mp4");
-        const tempAudioPath = path.join(outputDir, "_temp_audio.mp4");
+        console.log("Création des streams à partir des buffers mémoire...");
 
-        fs.writeFileSync(tempVideoPath, videoBuffer);
-        fs.writeFileSync(tempAudioPath, audioBuffer);
+        // Chemins des fichiers de sortie finaux
+        const completeVideoPath = path.join(outputDir, "reel_complete.mp4");
+        const audioPath = path.join(outputDir, "reel_audio.mp3"); // MP3 pour l'audio
 
-        // Convertir l'audio en MP3
+        // Créer des streams à partir des buffers mémoire
+        const videoStream = new Readable();
+        videoStream.push(videoBuffer);
+        videoStream.push(null);
+
+        const audioStream = new Readable();
+        audioStream.push(audioBuffer);
+        audioStream.push(null);
+
+        // Conversion audio MP3 directement avec fluent-ffmpeg
         await new Promise((resolve, reject) => {
-          const ffmpegProcess = spawn(ffmpegStatic, [
-            "-i",
-            tempAudioPath,
-            "-c:a",
-            "libmp3lame",
-            "-q:a",
-            "2",
-            "-y",
-            audioPath,
-          ]);
-
-          ffmpegProcess.stderr.on("data", (data) => {
-            console.log(`FFmpeg (audio): ${data}`);
-          });
-
-          ffmpegProcess.on("close", (code) => {
-            if (code === 0) {
-              console.log("Conversion audio MP3 réussie:", audioPath);
-              resolve();
-            } else {
-              console.error(
-                `FFmpeg audio a échoué avec le code ${code}, tentative de méthode alternative...`
-              );
-              // Alternative en cas d'échec: extraire l'audio directement de la vidéo
-              const altFfmpegProcess = spawn(ffmpegStatic, [
-                "-i",
-                tempVideoPath,
-                "-q:a",
-                "0",
-                "-map",
-                "a",
-                "-y",
-                audioPath,
-              ]);
-
-              altFfmpegProcess.stderr.on("data", (altData) => {
-                console.log(`FFmpeg (extraction audio alt): ${altData}`);
-              });
-
-              altFfmpegProcess.on("close", (altCode) => {
-                if (altCode === 0) {
-                  console.log(
-                    "Extraction audio alternative réussie:",
-                    audioPath
-                  );
+          ffmpeg(audioStream)
+            .inputFormat("mp4")
+            .audioCodec("libmp3lame")
+            .audioBitrate("192k")
+            .on("start", (cmd) => console.log("Commande FFmpeg audio:", cmd))
+            .on("error", (err) => {
+              console.error("Erreur lors de la conversion audio:", err);
+              // Tenter une alternative directement depuis le buffer vidéo si l'audio échoue
+              ffmpeg(videoStream)
+                .inputFormat("mp4")
+                .noVideo()
+                .audioCodec("libmp3lame")
+                .audioBitrate("192k")
+                .on("error", (altErr) => {
+                  console.error("Erreur alternative audio:", altErr);
+                  reject(altErr);
+                })
+                .on("end", () => {
+                  console.log("Extraction audio alternative réussie");
                   resolve();
-                } else {
-                  console.error(
-                    `Extraction audio alternative a échoué avec le code ${altCode}`
-                  );
-                  reject(new Error(`Échec de l'extraction audio`));
-                }
-              });
-            }
-          });
+                })
+                .save(audioPath);
+            })
+            .on("end", () => {
+              console.log("Conversion audio MP3 réussie");
+              resolve();
+            })
+            .save(audioPath);
         });
 
-        // Fusionner la vidéo et l'audio
+        // Fusionner la vidéo et l'audio directement avec fluent-ffmpeg
         await new Promise((resolve, reject) => {
-          const ffmpegProcess = spawn(ffmpegStatic, [
-            "-i",
-            tempVideoPath,
-            "-i",
-            audioPath,
-            "-c:v",
-            "copy",
-            "-c:a",
-            "aac",
-            "-y",
-            completeVideoPath,
-          ]);
-
-          ffmpegProcess.stderr.on("data", (data) => {
-            console.log(`FFmpeg (fusion): ${data}`);
-          });
-
-          ffmpegProcess.on("close", (code) => {
-            // Nettoyer les fichiers temporaires
-            try {
-              fs.unlinkSync(tempVideoPath);
-              fs.unlinkSync(tempAudioPath);
-            } catch (e) {
-              console.error(
-                "Erreur lors du nettoyage des fichiers temporaires:",
-                e
-              );
-            }
-
-            if (code === 0) {
+          ffmpeg(videoStream)
+            .inputFormat("mp4")
+            .input(audioPath) // Ajouter l'audio déjà converti
+            .outputOptions([
+              "-c:v copy", // Copier la vidéo sans réencodage
+              "-c:a aac", // Encoder l'audio en AAC pour la compatibilité
+              "-shortest", // Utiliser le flux le plus court pour la durée
+            ])
+            .on("start", (cmd) => console.log("Commande FFmpeg fusion:", cmd))
+            .on("error", (err) => {
+              console.error("Erreur lors de la fusion:", err);
+              reject(err);
+            })
+            .on("end", () => {
+              console.log("Fusion vidéo/audio réussie");
               resolve();
-            } else {
-              reject(new Error(`FFmpeg fusion a échoué avec le code ${code}`));
-            }
-          });
+            })
+            .save(completeVideoPath);
         });
 
         console.log("Fichiers créés avec succès:", {

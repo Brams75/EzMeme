@@ -257,7 +257,7 @@ function extractFrames(videoPath) {
           "Tentative d'extraction des frames sans analyse préalable..."
         );
 
-        // Fallback: extraire quelques frames sans connaître la durée
+        // Fallback: extraire une frame par seconde sans connaître la durée exacte
         try {
           ffmpeg(videoPath)
             .on("start", (cmd) => console.log("Commande ffmpeg fallback:", cmd))
@@ -272,7 +272,7 @@ function extractFrames(videoPath) {
               );
               reject(extractErr);
             })
-            .outputOptions(["-vf fps=1/2"]) // Extraire une frame toutes les 2 secondes
+            .outputOptions(["-vf fps=1"]) // Extraire une frame chaque seconde
             .output(path.join("frames", "frame-%03d.png"))
             .run();
         } catch (fallbackErr) {
@@ -309,22 +309,18 @@ function extractFrames(videoPath) {
               );
               reject(extractErr);
             })
-            .outputOptions(["-vf fps=1/2"]) // Extraire une frame toutes les 2 secondes
+            .outputOptions(["-vf fps=1"]) // Extraire une frame chaque seconde
             .output(path.join("frames", "frame-%03d.png"))
             .run();
 
           return;
         }
 
-        // Calculer le nombre d'images à extraire (1 par seconde)
-        const frameCount = Math.min(Math.ceil(durationSec), 30); // Maximum 30 frames pour éviter un trop grand nombre
-        console.log(`Extraction de ${frameCount} frames...`);
-
-        // Configurer ffmpeg pour extraire les frames à intervalles réguliers
+        // Configurer ffmpeg pour extraire une frame par seconde
         ffmpeg(videoPath)
           .on("start", (cmd) => console.log("Commande ffmpeg:", cmd))
           .on("end", () => {
-            console.log(`${frameCount} frames extraites avec succès`);
+            console.log(`Frames extraites avec succès (1 par seconde)`);
             resolve();
           })
           .on("error", (err) => {
@@ -332,7 +328,7 @@ function extractFrames(videoPath) {
             reject(err);
           })
           .outputOptions([
-            `-vf fps=1/${Math.ceil(durationSec / frameCount)}`, // 1 frame par intervalle régulier
+            "-vf fps=1", // Extraire exactement 1 frame par seconde
           ])
           .output(path.join("frames", "frame-%03d.png"))
           .run();
@@ -458,7 +454,7 @@ async function processImagesWithEasyOCR(language = "fra") {
 
     // Options d'optimisation pour l'OCR
     const scale = 40; // Redimensionnement à 40% - moins agressif
-    const maxImages = 15; // Traiter plus d'images
+    const maxImages = 60; // Traiter jusqu'à 60 images (1 minute de vidéo)
     const fastMode = true; // Toujours utiliser le mode rapide
 
     // Détection automatique du meilleur mode (GPU/CPU)

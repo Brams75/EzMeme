@@ -120,29 +120,30 @@ function createDownloadButton() {
   const styleElement = document.createElement("style");
   styleElement.textContent = `
     :root {
-      --primary-color: #2563eb;
-      --primary-hover: #1d4ed8;
+      --primary-color: #3b82f6;
+      --primary-hover: #2563eb;
       --success-color: #22c55e;
       --error-color: #ef4444;
-      --text-primary: #1f2937;
-      --text-secondary: #4b5563;
+      --text-primary: #1e293b;
+      --text-secondary: #64748b;
       --bg-primary: #ffffff;
-      --bg-secondary: #f3f4f6;
-      --border-color: #e5e7eb;
-      --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-      --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
-      --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+      --bg-secondary: #f8fafc;
+      --border-color: #e2e8f0;
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.07), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      --accent-gradient: linear-gradient(135deg, #3b82f6, #8b5cf6);
     }
 
     .instagram-downloader-button {
       position: fixed;
       right: 20px;
       bottom: 20px;
-      width: 48px;
-      height: 48px;
-      background-color: var(--primary-color);
+      width: 52px;
+      height: 52px;
+      background: var(--accent-gradient);
       color: white;
-      border-radius: 50%;
+      border-radius: 16px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -150,57 +151,75 @@ function createDownloadButton() {
       z-index: 999999;
       box-shadow: var(--shadow-lg);
       transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      border: none;
     }
     
     .instagram-downloader-button:hover {
-      transform: scale(1.1);
-      background-color: var(--primary-hover);
-      box-shadow: var(--shadow-lg), 0 0 0 4px rgba(37, 99, 235, 0.1);
+      transform: scale(1.05);
+      box-shadow: 0 15px 20px -5px rgba(59, 130, 246, 0.3), 0 8px 16px -8px rgba(59, 130, 246, 0.2);
     }
     
     .instagram-downloader-button svg {
       width: 24px;
       height: 24px;
+      filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.1));
     }
     
     .instagram-downloader-menu {
       position: fixed;
       right: 20px;
-      bottom: 80px;
-      width: 320px;
+      bottom: 84px;
+      width: 340px;
       background-color: var(--bg-primary);
-      border-radius: 12px;
-      box-shadow: var(--shadow-lg);
+      border-radius: 20px;
+      box-shadow: var(--shadow-lg), 0 0 0 1px rgba(0, 0, 0, 0.03);
       z-index: 9999;
       overflow: hidden;
       transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      border: 1px solid var(--border-color);
+      transform-origin: bottom right;
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(226, 232, 240, 0.8);
     }
     
     .menu-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 16px;
-      background-color: var(--primary-color);
+      padding: 16px 20px;
+      background: var(--accent-gradient);
       color: white;
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .menu-header::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100" fill="white" opacity="0.05"><circle cx="25" cy="25" r="20" fill-opacity="0.2"/><circle cx="75" cy="75" r="20" fill-opacity="0.2"/><circle cx="75" cy="25" r="10" fill-opacity="0.2"/><circle cx="25" cy="75" r="10" fill-opacity="0.2"/></svg>');
+      opacity: 0.1;
     }
     
     .menu-header h3 {
       margin: 0;
-      font-size: 16px;
+      font-size: 18px;
       font-weight: 600;
       letter-spacing: -0.025em;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
     }
     
     .toggle-button {
       cursor: pointer;
-      padding: 6px;
-      border-radius: 6px;
+      padding: 8px;
+      border-radius: 12px;
       transition: background-color 0.2s;
       display: flex;
       align-items: center;
       justify-content: center;
+      z-index: 1;
     }
     
     .toggle-button:hover {
@@ -208,25 +227,38 @@ function createDownloadButton() {
     }
     
     .menu-content {
-      padding: 16px;
+      padding: 20px;
     }
     
     .download-options, .extract-options {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 12px;
-      margin-bottom: 12px;
+      gap: 14px;
+      margin-bottom: 16px;
     }
     
     .download-all-container {
-      margin-bottom: 12px;
+      margin-bottom: 16px;
     }
     
     .download-all-button {
       width: 100%;
-      background-color: var(--primary-color) !important;
+      background: var(--accent-gradient) !important;
       color: white !important;
       font-weight: 500;
+      border: none !important;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 12px !important;
+      border-radius: 12px !important;
+      box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3) !important;
+      transition: all 0.2s ease !important;
+    }
+    
+    .download-all-button:hover {
+      transform: translateY(-1px) !important;
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4) !important;
     }
     
     .download-button {
@@ -234,22 +266,25 @@ function createDownloadButton() {
       align-items: center;
       justify-content: center;
       gap: 8px;
-      padding: 10px 14px;
+      padding: 12px 16px;
       border: 1px solid var(--border-color);
-      border-radius: 8px;
+      border-radius: 12px;
       background-color: var(--bg-primary);
       color: var(--text-primary);
-      font-size: 13px;
+      font-size: 14px;
       font-weight: 500;
       cursor: pointer;
       transition: all 0.2s;
       box-shadow: var(--shadow-sm);
+      position: relative;
+      overflow: hidden;
+      z-index: 1;
     }
     
     .download-button:hover {
       background-color: var(--bg-secondary);
-      border-color: var(--primary-color);
-      color: var(--primary-color);
+      border-color: #cbd5e1;
+      box-shadow: var(--shadow-md);
       transform: translateY(-1px);
     }
     
@@ -257,12 +292,177 @@ function createDownloadButton() {
       transform: translateY(0);
     }
     
-    .download-button:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-      transform: none;
+    .download-button svg {
+      width: 18px;
+      height: 18px;
+      transition: transform 0.2s ease;
     }
     
+    .download-button:hover svg {
+      transform: scale(1.1);
+    }
+    
+    .section-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin: 0 0 12px 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      letter-spacing: -0.01em;
+    }
+    
+    .section-title svg {
+      width: 18px;
+      height: 18px;
+      color: var(--primary-color);
+    }
+    
+    /* Styles pour les états de bouton */
+    .button-loading {
+      opacity: 0.8;
+      cursor: wait;
+      position: relative;
+    }
+    
+    .button-loading .button-text {
+      visibility: hidden;
+    }
+    
+    .button-loading::after {
+      content: "";
+      position: absolute;
+      width: 20px;
+      height: 20px;
+      top: calc(50% - 10px);
+      left: calc(50% - 10px);
+      border: 2px solid transparent;
+      border-radius: 50%;
+      border-top-color: currentColor;
+      animation: spin 0.6s linear infinite;
+    }
+    
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+    
+    .button-success, .button-error {
+      position: relative;
+    }
+    
+    .button-success {
+      background-color: rgba(34, 197, 94, 0.1) !important;
+      border-color: rgba(34, 197, 94, 0.2) !important;
+      color: #16a34a !important;
+    }
+    
+    .button-error {
+      background-color: rgba(239, 68, 68, 0.1) !important;
+      border-color: rgba(239, 68, 68, 0.2) !important;
+      color: #dc2626 !important;
+    }
+    
+    /* Animation d'apparition du menu */
+    @keyframes scaleIn {
+      from {
+        opacity: 0;
+        transform: scale(0.95);
+      }
+      to {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+    
+    .instagram-downloader-menu {
+      animation: scaleIn 0.2s ease-out;
+    }
+    
+    /* Ajout d'une section de statut */
+    .status-section {
+      font-size: 12px;
+      color: var(--text-secondary);
+      padding: 8px 12px;
+      background-color: var(--bg-secondary);
+      border-radius: 8px;
+      margin-top: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .status-indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: var(--success-color);
+    }
+    
+    .status-text {
+      flex: 1;
+    }
+    
+    /* Styles pour les messages de progression */
+    .progress-container {
+      margin-top: 12px;
+      padding: 10px 12px;
+      background-color: rgba(59, 130, 246, 0.08);
+      border-radius: 8px;
+      font-size: 13px;
+      color: var(--primary-color);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      transition: opacity 0.3s ease;
+    }
+    
+    .progress-icon {
+      animation: pulse 1.5s infinite;
+    }
+    
+    @keyframes pulse {
+      0% {
+        opacity: 0.6;
+      }
+      50% {
+        opacity: 1;
+      }
+      100% {
+        opacity: 0.6;
+      }
+    }
+    
+    /* Bouton pour fermer le menu */
+    .close-menu-button {
+      position: absolute;
+      top: 15px;
+      right: 15px;
+      background: transparent;
+      border: none;
+      color: white;
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background-color 0.2s;
+      z-index: 2;
+    }
+    
+    .close-menu-button:hover {
+      background-color: rgba(255, 255, 255, 0.2);
+    }
+    
+    .close-menu-button svg {
+      width: 18px;
+      height: 18px;
+    }
+
     .status-container {
       margin-top: 12px;
       padding: 12px;
@@ -293,14 +493,10 @@ function createDownloadButton() {
       transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
     
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-    
     .instagram-downloader-menu .loading {
       animation: spin 1s linear infinite;
     }
-
+    
     .modal {
       position: fixed;
       top: 0;
@@ -312,95 +508,6 @@ function createDownloadButton() {
       justify-content: center;
       align-items: center;
       z-index: 10000;
-    }
-
-    .modal-content {
-      background-color: var(--bg-primary);
-      border-radius: 12px;
-      width: 90%;
-      max-width: 600px;
-      max-height: 80vh;
-      overflow-y: auto;
-      box-shadow: var(--shadow-lg);
-    }
-
-    .modal-header {
-      padding: 16px;
-      border-bottom: 1px solid var(--border-color);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .modal-title {
-      margin: 0;
-      font-size: 18px;
-      font-weight: 600;
-      color: var(--text-primary);
-    }
-
-    .modal-close {
-      background: none;
-      border: none;
-      font-size: 24px;
-      cursor: pointer;
-      color: var(--text-secondary);
-      padding: 0 8px;
-      line-height: 1;
-    }
-
-    .modal-body {
-      padding: 16px;
-    }
-
-    .modal-section {
-      background-color: var(--bg-secondary);
-      border-radius: 8px;
-      padding: 16px;
-      margin-bottom: 16px;
-      box-shadow: var(--shadow-sm);
-    }
-
-    .modal-section-title {
-      font-size: 16px;
-      font-weight: 600;
-      color: var(--text-primary);
-      margin-bottom: 12px;
-      padding-bottom: 8px;
-      border-bottom: 1px solid var(--border-color);
-    }
-
-    .modal-section-content {
-      font-size: 14px;
-      line-height: 1.6;
-      color: var(--text-secondary);
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-
-    .modal-section-content:empty::before {
-      content: "Aucun contenu disponible";
-      color: var(--text-secondary);
-      font-style: italic;
-    }
-
-    .hashtags-section .modal-section-content {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-
-    .hashtag {
-      background-color: rgba(37, 99, 235, 0.1);
-      color: var(--primary-color);
-      padding: 4px 12px;
-      border-radius: 16px;
-      font-size: 13px;
-      font-weight: 500;
-    }
-
-    body.modal-open {
-      overflow: hidden;
     }
   `;
   document.head.appendChild(styleElement);
@@ -685,6 +792,8 @@ function setupDownloadButtons() {
 
   // Mise à jour de la barre de statut
   function updateStatus(message, progress) {
+    if (!statusMessage || !progressFill) return;
+
     // Utiliser requestAnimationFrame pour s'assurer que les mises à jour d'interface sont priorisées
     requestAnimationFrame(() => {
       statusMessage.textContent = message;
@@ -699,7 +808,7 @@ function setupDownloadButtons() {
       } else if (progress === 100) {
         progressFill.style.backgroundColor = "#4bb543"; // Vert pour succès
       } else {
-        progressFill.style.backgroundColor = "#0095f6"; // Bleu pour en cours
+        progressFill.style.backgroundColor = "#3b82f6"; // Bleu pour en cours
       }
 
       // Forcer un reflow pour s'assurer que les changements sont appliqués
@@ -1527,7 +1636,6 @@ function setupDownloadButtons() {
               })
               .catch((error) => {
                 clearInterval(requestInterval);
-                clearInterval(processInterval);
                 throw error;
               });
           } catch (error) {
@@ -1634,10 +1742,280 @@ function showContentModal(options = { title: "", sections: [] }) {
   const modal = document.createElement("div");
   modal.className = "modal";
   modal.innerHTML = `
+    <style>
+      :root {
+        --primary-color: #3b82f6;
+        --primary-hover: #2563eb;
+        --success-color: #22c55e;
+        --error-color: #ef4444;
+        --text-primary: #1e293b;
+        --text-secondary: #64748b;
+        --bg-primary: #ffffff;
+        --bg-secondary: #f8fafc;
+        --border-color: #e2e8f0;
+        --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+        --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07);
+        --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.07), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        --accent-gradient: linear-gradient(135deg, #3b82f6, #8b5cf6);
+      }
+      
+      .modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(15, 23, 42, 0.6);
+        backdrop-filter: blur(3px);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 10000;
+        animation: fadeIn 0.2s ease-out;
+      }
+      
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+      
+      @keyframes slideIn {
+        from {
+          opacity: 0;
+          transform: translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      
+      .modal-content {
+        background-color: var(--bg-primary);
+        border-radius: 20px;
+        width: 90%;
+        max-width: 600px;
+        max-height: 80vh;
+        overflow-y: auto;
+        box-shadow: var(--shadow-lg), 0 0 0 1px rgba(0, 0, 0, 0.02);
+        animation: slideIn 0.3s ease-out;
+        border: 1px solid var(--border-color);
+      }
+      
+      .modal-header {
+        padding: 18px 24px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        position: relative;
+        border-bottom: 1px solid var(--border-color);
+      }
+      
+      .modal-title {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 600;
+        color: var(--text-primary);
+        letter-spacing: -0.025em;
+      }
+      
+      .modal-close {
+        background: none;
+        border: none;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text-secondary);
+        transition: all 0.2s;
+      }
+      
+      .modal-close:hover {
+        background-color: var(--bg-secondary);
+        color: var(--text-primary);
+      }
+      
+      .modal-close svg {
+        width: 18px;
+        height: 18px;
+      }
+      
+      .modal-body {
+        padding: 24px;
+      }
+      
+      .modal-section {
+        background-color: var(--bg-secondary);
+        border-radius: 12px;
+        padding: 18px;
+        margin-bottom: 18px;
+        box-shadow: var(--shadow-sm);
+        border: 1px solid var(--border-color);
+        transition: all 0.3s ease;
+      }
+      
+      .modal-section:last-child {
+        margin-bottom: 0;
+      }
+      
+      .modal-section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 14px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid var(--border-color);
+      }
+      
+      .modal-section-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin: 0;
+        letter-spacing: -0.01em;
+      }
+      
+      .copy-button {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        background-color: var(--bg-primary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        color: var(--text-secondary);
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      
+      .copy-button:hover {
+        background-color: var(--primary-color);
+        border-color: var(--primary-color);
+        color: white;
+      }
+      
+      .copy-button svg {
+        width: 14px;
+        height: 14px;
+      }
+      
+      .copy-button.copied {
+        background-color: var(--success-color);
+        border-color: var(--success-color);
+        color: white;
+      }
+      
+      .modal-section-content {
+        font-size: 14px;
+        line-height: 1.7;
+        color: var(--text-secondary);
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      
+      .modal-section-content:empty::before {
+        content: "Aucun contenu disponible";
+        color: var(--text-secondary);
+        font-style: italic;
+        opacity: 0.7;
+      }
+      
+      /* Styles spécifiques aux hashtags */
+      .hashtags-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      
+      .hashtag {
+        background: rgba(59, 130, 246, 0.1);
+        color: var(--primary-color);
+        padding: 6px 14px;
+        border-radius: 50px;
+        font-size: 13px;
+        font-weight: 500;
+        transition: all 0.2s;
+      }
+      
+      .hashtag:hover {
+        background: rgba(59, 130, 246, 0.15);
+        transform: translateY(-1px);
+      }
+      
+      /* Animation pour le retour visuel */
+      @keyframes pulse {
+        0% {
+          box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4);
+        }
+        70% {
+          box-shadow: 0 0 0 10px rgba(34, 197, 94, 0);
+        }
+        100% {
+          box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+        }
+      }
+      
+      /* Styles pour les tableaux de texte détecté */
+      .texts-container {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      
+      .detected-text {
+        padding: 10px 14px;
+        background-color: var(--bg-primary);
+        border-radius: 8px;
+        border-left: 3px solid var(--primary-color);
+      }
+      
+      /* Style pour mettre en évidence le succès */
+      .highlight-success {
+        animation: pulse 1.5s;
+      }
+      
+      /* Personnalisation de la barre de défilement */
+      .modal-content::-webkit-scrollbar {
+        width: 8px;
+      }
+      
+      .modal-content::-webkit-scrollbar-track {
+        background: var(--bg-primary);
+        border-radius: 20px;
+      }
+      
+      .modal-content::-webkit-scrollbar-thumb {
+        background-color: var(--border-color);
+        border-radius: 20px;
+        border: 2px solid var(--bg-primary);
+      }
+      
+      .modal-content::-webkit-scrollbar-thumb:hover {
+        background-color: #cbd5e1;
+      }
+      
+      body.modal-open {
+        overflow: hidden;
+      }
+    </style>
     <div class="modal-content">
       <div class="modal-header">
         <h2 class="modal-title">${options.title}</h2>
-        <button class="modal-close">&times;</button>
+        <button class="modal-close">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
       </div>
       <div class="modal-body">
         ${options.sections
@@ -1692,14 +2070,20 @@ function showContentModal(options = { title: "", sections: [] }) {
           button.classList.add("copied");
           button.innerHTML = `
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          Copié !
-        `;
+            Copié !
+          `;
+
+          // Effet de succès avec animation
+          const section = button.closest(".modal-section");
+          section.classList.add("highlight-success");
+
           setTimeout(() => {
             button.classList.remove("copied");
             button.innerHTML = `
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-            Copier
-          `;
+              Copier
+            `;
+            section.classList.remove("highlight-success");
           }, 2000);
         });
       }

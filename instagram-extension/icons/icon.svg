@@ -1,19 +1,35 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
-  <!-- Fond Instagram -->
-  <rect width="128" height="128" rx="24" fill="#E4405F"/>
+  <!-- Fond avec dégradé -->
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6" />
+      <stop offset="100%" stop-color="#8b5cf6" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="rgba(0,0,0,0.2)" />
+    </filter>
+  </defs>
   
-  <!-- Icône de téléchargement -->
-  <path d="M64 32 L64 80 M48 64 L64 80 L80 64" 
-        stroke="white" 
-        stroke-width="8" 
-        stroke-linecap="round" 
-        stroke-linejoin="round" 
-        fill="none"/>
+  <!-- Fond arrondi -->
+  <rect width="128" height="128" rx="32" fill="url(#bgGradient)" filter="url(#shadow)"/>
   
-  <!-- Ligne horizontale -->
-  <line x1="32" y1="96" x2="96" y2="96" 
-        stroke="white" 
-        stroke-width="8" 
-        stroke-linecap="round"/>
+  <!-- Motif subtil -->
+  <path d="M30 30 L98 30 L98 98 L30 98 Z" fill="white" fill-opacity="0.06" rx="16"/>
+  
+  <!-- Icône de téléchargement stylisée -->
+  <g transform="translate(64, 64)" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- Cercle subtil -->
+    <circle cx="0" cy="0" r="30" stroke-opacity="0.1" />
+    
+    <!-- Flèche de téléchargement -->
+    <path d="M0 -24 L0 12" />
+    <path d="M-16 -4 L0 12 L16 -4" />
+    
+    <!-- Ligne de base -->
+    <line x1="-20" y1="24" x2="20" y2="24" />
+  </g>
+  
+  <!-- Reflet subtil -->
+  <ellipse cx="40" cy="40" rx="16" ry="16" fill="white" fill-opacity="0.08" />
 </svg> 

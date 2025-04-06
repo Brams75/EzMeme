@@ -32,7 +32,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["icons/*", "direct-downloader.js"],
+      "resources": ["icons/*"],
       "matches": ["https://*.instagram.com/*", "http://localhost:3000/*"]
     }
   ],

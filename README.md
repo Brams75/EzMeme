@@ -93,6 +93,8 @@ cd EzMeme
 npm install
 ```
 
+> **Note**: Le projet a été optimisé en supprimant les dépendances inutilisées comme `archiver`, `electron`, `ffmpeg-extract-frames`, `tesseract.js` et `unzipper`. Si vous rencontrez des problèmes liés à ces modules après mise à jour, vérifiez le package.json.
+
 #### 3. Configuration de l'environnement Python avec Conda
 
 ```bash
@@ -130,6 +132,8 @@ EASYOCR_SERVICE_HOST=127.0.0.1
 # Autres paramètres
 DEBUG_MODE=False
 ```
+
+> **Avertissement de sécurité**: Votre clé API OpenAI est sensible. Ne la partagez jamais dans des dépôts publics et assurez-vous que le fichier .env est bien inclus dans .gitignore.
 
 #### 5. Création des répertoires nécessaires
 
@@ -208,9 +212,8 @@ EzMeme/
     ├── manifest.json            # Configuration de l'extension
     ├── popup.html               # Interface utilisateur
     ├── popup.js                 # Logique de l'interface
-    ├── content.js               # Script intégré aux pages Instagram
-    ├── modal.js                 # Gestion des fenêtres modales
-    ├── background.js            # Service worker en arrière-plan
+    ├── content.js               # Script intégré aux pages Instagram (inclut la fonctionnalité modal)
+    ├── background.js            # Service worker en arrière-plan (nécessaire pour Manifest V3)
     ├── package.json             # Dépendances de l'extension
     └── icons/                   # Icônes de l'extension
 ```
@@ -355,6 +358,17 @@ reader = easyocr.Reader(['fr', 'en', 'es'], # Ajoutez d'autres langues ici
                        quantize=False)
 ```
 
+### Modularisation du code
+
+Le fichier principal `server.js` est volumineux (plus de 2000 lignes). Pour améliorer la maintenabilité, envisagez de le diviser en modules plus petits et spécifiques:
+
+- Un module pour la gestion des fichiers et le nettoyage
+- Un module pour l'OCR et le traitement d'image
+- Un module pour les téléchargements Instagram
+- Un module pour les routes API Express
+
+Cette refactorisation facilitera les futures modifications et les tests.
+
 ### Correction avancée avec OpenAI
 
 Le système utilise l'API OpenAI GPT-3.5-Turbo pour corriger les textes extraits. Vous pouvez personnaliser :
@@ -373,6 +387,8 @@ Le projet dépend de plusieurs bibliothèques majeures :
 2. **Puppeteer** : Automatisation de Chrome pour le téléchargement
 3. **FFmpeg** : Traitement des médias et extraction de frames
 4. **OpenAI** : Correction de texte
+5. **Express** : Serveur API REST
+6. **Sharp** : Traitement d'images
 
 La mise à jour de ces dépendances peut nécessiter des tests approfondis.
 

@@ -18,13 +18,19 @@ import os from "os";
 // Utilitaire pour mesurer le temps des opérations
 const Timer = {
   start: (label) => {
-    console.time(`⏱️ ${label}`);
-    return { label, startTime: Date.now() };
+    const timerLabel = `⏱️ ${label}`;
+    console.time(timerLabel);
+    return { label: timerLabel, startTime: Date.now() };
   },
   end: (timer) => {
     const duration = (Date.now() - timer.startTime) / 1000;
-    console.timeEnd(`⏱️ ${timer.label}`);
-    console.log(`⏱️ ${timer.label} a pris ${duration.toFixed(2)} secondes`);
+    try {
+      console.timeEnd(timer.label);
+    } catch (e) {
+      // En cas d'erreur de timeEnd (étiquette non trouvée), afficher un message personnalisé
+      console.log(`${timer.label} a pris ${duration.toFixed(2)} secondes`);
+    }
+    console.log(`${timer.label} a pris ${duration.toFixed(2)} secondes`);
     return duration;
   },
 };
@@ -1525,6 +1531,30 @@ async function directDownloadVideo(url) {
   const completeVideoPath = path.join(outputDir, "reel_complete.mp4");
   const audioPath = path.join(outputDir, "reel_audio.mp3"); // Toujours utiliser .mp3 pour l'audio
 
+  // Vérifier si les fichiers existent déjà
+  const fileExists = (filePath) => {
+    try {
+      return fs.existsSync(filePath) && fs.statSync(filePath).size > 0;
+    } catch (e) {
+      return false;
+    }
+  };
+
+  // Si les deux fichiers existent déjà, retourner immédiatement
+  if (fileExists(completeVideoPath) && fileExists(audioPath)) {
+    console.log(
+      "Les fichiers vidéo et audio existent déjà, pas besoin de télécharger"
+    );
+    const totalDuration = Timer.end(totalTimer);
+    return {
+      success: true,
+      videoPath: completeVideoPath,
+      audioPath: audioPath,
+      duration: totalDuration,
+      reused: true,
+    };
+  }
+
   try {
     // Lancer Puppeteer en mode headless "new"
     const puppeteerTimer = Timer.start("Initialisation Puppeteer");
@@ -2528,28 +2558,50 @@ app.post("/download-all", async (req, res) => {
       });
     }
 
-    // Télécharger la vidéo et l'audio
-    console.log("Démarrage du téléchargement complet pour:", url);
-    const result = await directDownloadVideo(url);
-
-    if (!result.success) {
-      throw new Error(result.error || "Échec du téléchargement");
-    }
-
-    // Vérifier que les fichiers existent bien
+    // Vérifier si les fichiers existent déjà
     const videoPath = path.join(__dirname, "downloads", "reel_complete.mp4");
     const audioPath = path.join(__dirname, "downloads", "reel_audio.mp3");
+    let mediasExist = false;
 
-    if (!fs.existsSync(videoPath)) {
-      throw new Error("Le fichier vidéo n'a pas été créé");
-    }
+    // Vérification de l'existence des fichiers
+    const fileExists = (filePath) => {
+      try {
+        return fs.existsSync(filePath) && fs.statSync(filePath).size > 0;
+      } catch (e) {
+        return false;
+      }
+    };
 
-    const audioExists = fs.existsSync(audioPath);
-    if (!audioExists) {
-      console.warn("Le fichier audio MP3 n'existe pas, tentative avec MP4");
-      const audioPathMP4 = path.join(__dirname, "downloads", "reel_audio.mp4");
-      if (!fs.existsSync(audioPathMP4)) {
-        console.error("Aucun fichier audio trouvé (ni MP3 ni MP4)");
+    // Vérifier si les médias existent déjà
+    if (fileExists(videoPath) && fileExists(audioPath)) {
+      console.log("Vidéo et audio déjà disponibles, réutilisation...");
+      mediasExist = true;
+    } else {
+      console.log("Téléchargement des médias requis...");
+      // Télécharger la vidéo et l'audio
+      console.log("Démarrage du téléchargement complet pour:", url);
+      const result = await directDownloadVideo(url);
+
+      if (!result.success) {
+        throw new Error(result.error || "Échec du téléchargement");
+      }
+
+      // Vérifier à nouveau que les fichiers ont bien été créés
+      if (!fileExists(videoPath)) {
+        throw new Error("Le fichier vidéo n'a pas été créé");
+      }
+
+      const audioExists = fileExists(audioPath);
+      if (!audioExists) {
+        console.warn("Le fichier audio MP3 n'existe pas, tentative avec MP4");
+        const audioPathMP4 = path.join(
+          __dirname,
+          "downloads",
+          "reel_audio.mp4"
+        );
+        if (!fileExists(audioPathMP4)) {
+          console.error("Aucun fichier audio trouvé (ni MP3 ni MP4)");
+        }
       }
     }
 

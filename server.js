@@ -15,6 +15,20 @@ import dotenv from "dotenv";
 import { Readable } from "stream";
 import os from "os";
 
+// Utilitaire pour mesurer le temps des opérations
+const Timer = {
+  start: (label) => {
+    console.time(`⏱️ ${label}`);
+    return { label, startTime: Date.now() };
+  },
+  end: (timer) => {
+    const duration = (Date.now() - timer.startTime) / 1000;
+    console.timeEnd(`⏱️ ${timer.label}`);
+    console.log(`⏱️ ${timer.label} a pris ${duration.toFixed(2)} secondes`);
+    return duration;
+  },
+};
+
 // Charger les variables d'environnement depuis le fichier .env
 dotenv.config();
 
@@ -113,7 +127,10 @@ async function startEasyOCRService() {
 
 // Fonction pour utiliser le service EasyOCR via l'API
 async function processImageWithEasyOCRService(imagePath, options = {}) {
+  const ocrTimer = Timer.start(`OCR image ${path.basename(imagePath)}`);
+
   if (!ocrServiceStarted) {
+    Timer.end(ocrTimer);
     throw new Error("Le service EasyOCR n'est pas démarré");
   }
 
@@ -139,14 +156,21 @@ async function processImageWithEasyOCRService(imagePath, options = {}) {
 
     if (!response.ok) {
       const errorText = await response.text();
+      Timer.end(ocrTimer);
       throw new Error(
         `Erreur du service OCR: ${response.status} - ${errorText}`
       );
     }
 
     const result = await response.json();
+    const duration = Timer.end(ocrTimer);
+
+    // Ajouter la durée aux résultats
+    result.duration = duration;
+
     return result;
   } catch (error) {
+    Timer.end(ocrTimer);
     console.error(`Erreur lors de l'appel au service OCR: ${error.message}`);
     throw error;
   }
@@ -154,14 +178,15 @@ async function processImageWithEasyOCRService(imagePath, options = {}) {
 
 // Fonction pour traiter plusieurs images avec le service EasyOCR
 async function processFramesWithEasyOCRService(framesDir, language = "fra") {
+  const totalTimer = Timer.start("Traitement OCR complet");
   console.log(
     `Traitement OCR des frames dans ${framesDir} avec le service EasyOCR...`
   );
-  const startTime = Date.now();
 
   // Vérifier que le dossier frames existe et contient des images
   if (!fs.existsSync(framesDir)) {
     console.error(`Dossier frames non trouvé: ${framesDir}`);
+    Timer.end(totalTimer);
     throw new Error(`Dossier frames non trouvé: ${framesDir}`);
   }
 
@@ -176,6 +201,7 @@ async function processFramesWithEasyOCRService(framesDir, language = "fra") {
 
   if (framePaths.length === 0) {
     console.error("Aucune frame trouvée dans le dossier frames");
+    Timer.end(totalTimer);
     throw new Error("Aucune frame à traiter");
   }
 
@@ -194,9 +220,11 @@ async function processFramesWithEasyOCRService(framesDir, language = "fra") {
   // Traiter chaque image
   const results = [];
   const texts = [];
+  const processTimer = Timer.start("Traitement OCR des images");
 
   for (let i = 0; i < framePaths.length; i++) {
     try {
+      const imageTimer = Timer.start(`OCR image ${i + 1}/${framePaths.length}`);
       console.log(
         `Traitement de l'image ${i + 1}/${framePaths.length}: ${framePaths[i]}`
       );
@@ -204,6 +232,7 @@ async function processFramesWithEasyOCRService(framesDir, language = "fra") {
         framePaths[i],
         options
       );
+      const imageDuration = Timer.end(imageTimer);
 
       if (result.text && result.text.trim()) {
         texts.push(result.text);
@@ -213,6 +242,7 @@ async function processFramesWithEasyOCRService(framesDir, language = "fra") {
           image: path.basename(framePaths[i]),
           confidence: 0.7,
           is_significant: result.text.trim().length > 3,
+          processing_time: imageDuration,
         });
       }
 
@@ -233,6 +263,8 @@ async function processFramesWithEasyOCRService(framesDir, language = "fra") {
     }
   }
 
+  Timer.end(processTimer);
+
   // Créer le dossier ocr s'il n'existe pas
   const ocrDir = path.join(path.dirname(framesDir), "ocr");
   fs.mkdirSync(ocrDir, { recursive: true });
@@ -243,7 +275,7 @@ async function processFramesWithEasyOCRService(framesDir, language = "fra") {
       console.log(
         `Regroupement et correction des ${texts.length} textes détectés...`
       );
-      const correctionStart = Date.now();
+      const correctionTimer = Timer.start("Correction de texte avec l'IA");
 
       // Envoyer tous les textes au service pour correction
       const response = await fetch(`${EASYOCR_SERVICE_URL}/correct-texts`, {
@@ -261,11 +293,9 @@ async function processFramesWithEasyOCRService(framesDir, language = "fra") {
 
       if (response.ok) {
         const correctionResult = await response.json();
-        const correctionTime = ((Date.now() - correctionStart) / 1000).toFixed(
-          2
-        );
+        const correctionDuration = Timer.end(correctionTimer);
 
-        console.log(`Correction des textes terminée en ${correctionTime}s`);
+        console.log(`Correction des textes terminée`);
 
         if (correctionResult.success && correctionResult.grouped_corrections) {
           const correctedResults = [];
@@ -296,6 +326,7 @@ async function processFramesWithEasyOCRService(framesDir, language = "fra") {
               confidence: 0.95, // Haute confiance pour les textes corrigés par IA
               is_significant: group.corrected_text.trim().length > 3,
               original_texts: group.original_texts,
+              correction_time: correctionDuration,
             });
           });
 
@@ -309,6 +340,7 @@ async function processFramesWithEasyOCRService(framesDir, language = "fra") {
       } else {
         const errorText = await response.text();
         console.error(`Erreur lors de la correction des textes: ${errorText}`);
+        Timer.end(correctionTimer);
       }
     } catch (error) {
       console.error(
@@ -319,12 +351,16 @@ async function processFramesWithEasyOCRService(framesDir, language = "fra") {
   }
 
   // Écrire les résultats
+  const writeTimer = Timer.start("Écriture des résultats OCR");
   const outputFile = path.join(ocrDir, "easyocr_results.json");
   fs.writeFileSync(outputFile, JSON.stringify(results, null, 2), "utf8");
+  Timer.end(writeTimer);
 
-  const processingTime = ((Date.now() - startTime) / 1000).toFixed(2);
+  const totalDuration = Timer.end(totalTimer);
   console.log(
-    `Traitement OCR terminé en ${processingTime}s, ${results.length} textes extraits`
+    `Traitement OCR terminé en ${totalDuration.toFixed(2)}s, ${
+      results.length
+    } textes extraits`
   );
 
   return results;
@@ -438,6 +474,9 @@ dirs.forEach((dir) => {
 
 // Fonction pour nettoyer les dossiers spécifiques
 function cleanDirectories(dirsToClean = ["frames", "ocr"]) {
+  const cleanTimer = Timer.start(
+    `Nettoyage des dossiers ${dirsToClean.join(", ")}`
+  );
   console.log(`Nettoyage des dossiers: ${dirsToClean.join(", ")}...`);
   dirsToClean.forEach((dir) => {
     if (!fs.existsSync(dir)) {
@@ -511,6 +550,10 @@ function cleanDirectories(dirsToClean = ["frames", "ocr"]) {
       console.error(`Erreur lors du nettoyage du dossier ${dir}: ${e.message}`);
     }
   });
+
+  const cleanDuration = Timer.end(cleanTimer);
+  console.log(`Nettoyage terminé en ${cleanDuration.toFixed(2)}s`);
+  return cleanDuration;
 }
 
 // Fonction pour nettoyer les fichiers anciens dans le dossier downloads
@@ -671,11 +714,16 @@ setInterval(() => {
 
 // Fonction pour extraire les données Instagram
 async function scrapeInstagram(url) {
+  const scrapingTimer = Timer.start("Scraping Instagram");
   console.log("Scraping Instagram URL:", url);
 
   const browser = await puppeteer.launch({
     headless: "new",
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-features=site-per-process",
+    ],
   });
 
   try {
@@ -693,11 +741,15 @@ async function scrapeInstagram(url) {
     console.log("Chargement de l'URL Instagram:", url);
     await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
 
-    // Attendre le chargement du contenu
-    await page.waitForSelector("body", { timeout: 10000 });
+    // Attendre le chargement du contenu avec plus de temps
+    await page.waitForSelector("body", { timeout: 15000 });
+
+    // Attendre un peu plus pour que le contenu dynamique se charge
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
     console.log("Page Instagram chargée, extraction des données...");
 
-    // Extraire la description et les hashtags uniquement avec XPath
+    // Extraire la description et les hashtags avec différentes méthodes
     const extractedData = await page.evaluate(() => {
       // Fonction pour extraire les hashtags d'un texte
       function extractHashtags(text) {
@@ -709,42 +761,116 @@ async function scrapeInstagram(url) {
       let description = "";
       let hashtags = [];
 
-      // Récupérer la description avec le XPath exact
-      const xpath =
-        "/html/body/div[1]/div/div/div[2]/div/div/div[1]/div[1]/div[1]/section/main/div[2]/div[1]/article/div/div[2]/div/div[2]/div[1]/ul/div[1]/li/div/div/div[2]/div[1]/h1";
-      const result = document.evaluate(
-        xpath,
-        document,
-        null,
-        XPathResult.FIRST_ORDERED_NODE_TYPE,
-        null
-      );
-      const descriptionElement = result.singleNodeValue;
+      // Méthode 1: Utiliser le XPath spécifique
+      try {
+        const xpath =
+          "/html/body/div[1]/div/div/div[2]/div/div/div[1]/div[1]/div[1]/section/main/div[2]/div[1]/article/div/div[2]/div/div[2]/div[1]/ul/div[1]/li/div/div/div[2]/div[1]/h1";
+        const result = document.evaluate(
+          xpath,
+          document,
+          null,
+          XPathResult.FIRST_ORDERED_NODE_TYPE,
+          null
+        );
+        const descriptionElement = result.singleNodeValue;
 
-      if (descriptionElement) {
-        description = descriptionElement.textContent.trim();
+        if (descriptionElement) {
+          description = descriptionElement.textContent.trim();
+          hashtags = extractHashtags(description);
+        }
+      } catch (e) {
+        console.log("Erreur avec XPath spécifique:", e);
+      }
 
-        // Extraire les hashtags de la description
-        hashtags = extractHashtags(description);
+      // Méthode 2: Utiliser des sélecteurs CSS plus généraux si la méthode 1 échoue
+      if (!description) {
+        try {
+          // Essayer de trouver tout texte qui pourrait contenir la description
+          const possibleDescElements = Array.from(
+            document.querySelectorAll("span, p, h1, h2, div")
+          );
+          for (const elem of possibleDescElements) {
+            const text = elem.textContent?.trim();
+            if (text && text.length > 10 && text.length < 2000) {
+              const extractedTags = extractHashtags(text);
+              if (extractedTags.length > 0) {
+                description = text;
+                hashtags = extractedTags;
+                break;
+              }
+            }
+          }
+        } catch (e) {
+          console.log("Erreur avec les sélecteurs généraux:", e);
+        }
+      }
 
-        // Nettoyer la description en retirant les hashtags
-        description = description.replace(/#[\p{L}\p{N}_]+/gu, "").trim();
+      // Méthode 3: Chercher spécifiquement les hashtags dans toute la page
+      if (hashtags.length === 0) {
+        try {
+          const allText = document.body.innerText;
+          hashtags = extractHashtags(allText);
+
+          // Si nous avons des hashtags mais pas de description, créer une description basique
+          if (hashtags.length > 0 && !description) {
+            description = "Description extraite des hashtags";
+          }
+        } catch (e) {
+          console.log("Erreur avec la recherche de hashtags dans le body:", e);
+        }
       }
 
       return { description, hashtags };
     });
 
-    console.log("Données extraites:", {
-      description: extractedData.description
-        ? extractedData.description.substring(0, 50) + "..."
+    // Log pour le débogage
+    console.log("Données extraites brutes:", JSON.stringify(extractedData));
+
+    // Nettoyage et préparation des données
+    let cleanDescription = extractedData.description || "";
+
+    // Éliminer les hashtags de la description pour éviter la duplication
+    if (extractedData.hashtags && extractedData.hashtags.length > 0) {
+      extractedData.hashtags.forEach((tag) => {
+        cleanDescription = cleanDescription.replace(tag, "");
+      });
+      cleanDescription = cleanDescription.trim();
+    }
+
+    // Si après nettoyage la description est vide ou trop courte, gardons l'originale
+    if (!cleanDescription || cleanDescription.length < 5) {
+      cleanDescription = extractedData.description;
+    }
+
+    // Résultat final
+    const finalData = {
+      description: cleanDescription || "Aucune description disponible",
+      hashtags: extractedData.hashtags || [],
+    };
+
+    console.log("Données extraites (traitées):", {
+      description: finalData.description
+        ? finalData.description.substring(0, 50) +
+          (finalData.description.length > 50 ? "..." : "")
         : "Non trouvée",
-      hashtags: extractedData.hashtags,
+      hashtags: finalData.hashtags,
     });
 
-    return extractedData;
+    const scrapingDuration = Timer.end(scrapingTimer);
+    console.log(`Scraping terminé en ${scrapingDuration.toFixed(2)}s`);
+    return {
+      ...finalData,
+      duration: scrapingDuration,
+    };
   } catch (error) {
+    Timer.end(scrapingTimer);
     console.error("Erreur lors du scraping Instagram:", error);
-    throw error;
+    // En cas d'erreur, retourner un objet valide plutôt que de lancer une exception
+    return {
+      description: "Aucune description disponible",
+      hashtags: [],
+      error: error.message,
+    };
   } finally {
     console.log("Fermeture du navigateur...");
     await browser.close();
@@ -752,87 +878,140 @@ async function scrapeInstagram(url) {
 }
 
 // Ajouter une fonction pour optimiser l'extraction de frames avec ffmpeg
-async function extractFramesFromVideo(videoPath, outputFolder, maxFrames = 40) {
-  return new Promise((resolve, reject) => {
-    console.log(`Extraction des frames de la vidéo ${videoPath}...`);
-    const startTime = Date.now();
+async function extractFramesFromVideo(videoPath, outputFolder, maxFrames = 20) {
+  const totalTimer = Timer.start("Extraction des frames");
+  console.log(`Extraction de frames pour la vidéo ${videoPath}...`);
 
-    // Vérifier que la vidéo existe
-    if (!fs.existsSync(videoPath)) {
-      return reject(new Error(`La vidéo ${videoPath} n'existe pas`));
+  // Créer le dossier de sortie s'il n'existe pas
+  if (!fs.existsSync(outputFolder)) {
+    fs.mkdirSync(outputFolder, { recursive: true });
+  }
+
+  try {
+    // Utiliser ffprobe pour obtenir la durée de la vidéo
+    const durationData = await new Promise((resolve, reject) => {
+      ffmpeg.ffprobe(videoPath, (err, metadata) => {
+        if (err) reject(err);
+        else resolve(metadata);
+      });
+    });
+
+    const durationInSeconds = durationData.format.duration;
+    console.log(`Durée détectée: ${durationInSeconds} secondes`);
+
+    // Stratégie d'échantillonnage adaptatif pour les mèmes
+    let interval, framesTarget;
+
+    if (durationInSeconds < 10) {
+      // Vidéos très courtes: maximum de détails car probablement beaucoup de texte en peu de temps
+      interval = 1; // 1 frame par seconde
+      framesTarget = Math.min(10, Math.ceil(durationInSeconds)); // Max 10 frames
+      console.log(
+        "Vidéo très courte: échantillonnage fréquent pour capturer tous les textes"
+      );
+    } else if (durationInSeconds < 15) {
+      // Vidéos courtes: échantillonnage assez fréquent
+      interval = 1.5; // 1 frame toutes les 1.5 secondes
+      framesTarget = Math.min(12, Math.ceil(durationInSeconds / 1.5)); // ~8-10 frames
+      console.log("Vidéo courte: échantillonnage toutes les 1.5 secondes");
+    } else if (durationInSeconds < 30) {
+      // Vidéos moyennes: échantillonnage modéré
+      interval = 3; // 1 frame toutes les 3 secondes
+      framesTarget = Math.min(15, Math.ceil(durationInSeconds / 3)); // ~5-10 frames
+      console.log("Vidéo moyenne: échantillonnage toutes les 3 secondes");
+    } else {
+      // Vidéos longues: échantillonnage plus espacé
+      interval = 4; // 1 frame toutes les 4 secondes
+      framesTarget = Math.min(maxFrames, Math.ceil(durationInSeconds / 4)); // ~8-15 frames selon la longueur
+      console.log("Vidéo longue: échantillonnage toutes les 4 secondes");
     }
 
-    // S'assurer que le dossier de sortie existe
-    if (!fs.existsSync(outputFolder)) {
-      fs.mkdirSync(outputFolder, { recursive: true });
-    } else {
-      // Nettoyer le dossier de sortie
-      fs.readdirSync(outputFolder).forEach((file) => {
-        if (file.endsWith(".png")) {
-          fs.unlinkSync(path.join(outputFolder, file));
+    // Si la vidéo est très longue, limiter le nombre total de frames
+    const finalFramesTarget = Math.min(framesTarget, maxFrames);
+
+    // Ajuster l'intervalle si nécessaire pour respecter le nombre maximum de frames
+    const finalInterval = Math.max(
+      interval,
+      durationInSeconds / finalFramesTarget
+    );
+
+    console.log(
+      `Stratégie adaptative: intervalle=${finalInterval.toFixed(
+        1
+      )}s, frames cible=${finalFramesTarget}`
+    );
+
+    // Supprimer les anciennes frames si elles existent
+    const existingFrames = fs.readdirSync(outputFolder);
+    existingFrames.forEach((file) => {
+      if (file.endsWith(".jpg") || file.endsWith(".png")) {
+        fs.unlinkSync(path.join(outputFolder, file));
+      }
+    });
+
+    // Configuration optimisée de ffmpeg pour une extraction plus rapide
+    const ffmpegTimer = Timer.start("FFmpeg - extraction des frames");
+    const ffmpegProcess = ffmpeg(videoPath)
+      .setFfmpegPath(ffmpegStatic)
+      .outputOptions([
+        `-vf fps=1/${finalInterval}`, // Extraire 1 frame par intervalle adaptatif
+        "-q:v 3", // Qualité de compression (3 est un compromis entre taille et qualité)
+        "-pix_fmt yuv420p", // Format de pixels standard
+        "-preset ultrafast", // Utiliser le preset le plus rapide
+        "-threads 4", // Utiliser plusieurs threads
+      ])
+      .output(path.join(outputFolder, "frame-%03d.jpg"))
+      .on("start", (cmd) => {
+        console.log("Commande FFmpeg:", cmd);
+      })
+      .on("progress", (progress) => {
+        if (progress && progress.percent) {
+          console.log(`Progression: ${Math.round(progress.percent)}%`);
         }
       });
-    }
 
-    // Obtenir la durée de la vidéo
-    ffmpeg.ffprobe(videoPath, (err, metadata) => {
-      if (err) {
-        console.error("Erreur lors de l'analyse de la vidéo:", err);
-        return reject(err);
-      }
-
-      const duration = metadata.format.duration || 0;
-      console.log(`Durée de la vidéo: ${duration} secondes`);
-
-      // Calculer l'intervalle entre les frames
-      const interval = Math.max(1, Math.floor(duration / maxFrames));
-      console.log(`Intervalle d'extraction: ${interval} secondes`);
-
-      // Utiliser -hwaccel auto pour activer l'accélération matérielle si disponible
-      ffmpeg(videoPath)
-        .inputOptions([
-          "-hwaccel",
-          "auto", // Utiliser l'accélération matérielle si disponible
-        ])
-        .outputOptions([
-          "-vf",
-          `fps=1/${interval}`, // Extraire une frame toutes les 'interval' secondes
-          "-q:v",
-          "2", // Qualité des images (2 = haute qualité, 31 = basse qualité)
-          "-preset",
-          "ultrafast", // Le preset le plus rapide
-        ])
-        .output(path.join(outputFolder, "frame-%03d.png"))
-        .on("start", (commandLine) => {
-          console.log("Commande ffmpeg:", commandLine);
-        })
-        .on("progress", (progress) => {
-          console.log(`Progression ffmpeg: ${JSON.stringify(progress)}`);
-        })
-        .on("end", () => {
-          const endTime = Date.now();
-          const elapsedTime = (endTime - startTime) / 1000;
-          console.log(
-            `Extraction des frames terminée en ${elapsedTime.toFixed(
-              2
-            )} secondes`
-          );
-
-          // Compter les frames extraites
-          const framesCount = fs
-            .readdirSync(outputFolder)
-            .filter((file) => file.endsWith(".png")).length;
-          console.log(`${framesCount} frames extraites`);
-
-          resolve(framesCount);
-        })
+    // Exécuter ffmpeg et attendre la fin
+    await new Promise((resolve, reject) => {
+      ffmpegProcess
         .on("error", (err) => {
           console.error("Erreur lors de l'extraction des frames:", err);
           reject(err);
         })
+        .on("end", () => {
+          console.log("Extraction des frames terminée");
+          resolve();
+        })
         .run();
     });
-  });
+    Timer.end(ffmpegTimer);
+
+    // Vérifier combien de frames ont été extraites
+    const extractedFrames = fs
+      .readdirSync(outputFolder)
+      .filter((file) => file.startsWith("frame-") && file.endsWith(".jpg"));
+
+    console.log(`${extractedFrames.length} frames extraites avec succès`);
+
+    const totalDuration = Timer.end(totalTimer);
+    return {
+      success: true,
+      totalFrames: extractedFrames.length,
+      frameFolder: outputFolder,
+      duration: totalDuration,
+      strategy: {
+        videoDuration: durationInSeconds,
+        interval: finalInterval,
+        framesTarget: finalFramesTarget,
+      },
+    };
+  } catch (error) {
+    Timer.end(totalTimer);
+    console.error("Erreur lors de l'extraction des frames:", error);
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
 }
 
 // Routes API
@@ -1333,6 +1512,7 @@ app.get("/download/:type/:filename", (req, res) => {
 
 // Fonction pour télécharger directement une vidéo Instagram
 async function directDownloadVideo(url) {
+  const totalTimer = Timer.start("Téléchargement complet de la vidéo");
   console.log("Téléchargement direct de la vidéo:", url);
 
   // Créer le répertoire de sortie si nécessaire
@@ -1347,6 +1527,7 @@ async function directDownloadVideo(url) {
 
   try {
     // Lancer Puppeteer en mode headless "new"
+    const puppeteerTimer = Timer.start("Initialisation Puppeteer");
     const browser = await puppeteer.launch({
       headless: "new",
       args: [
@@ -1356,6 +1537,7 @@ async function directDownloadVideo(url) {
       ],
     });
     const page = await browser.newPage();
+    Timer.end(puppeteerTimer);
 
     // Optimiser les performances
     await page.setRequestInterception(true);
@@ -1382,17 +1564,49 @@ async function directDownloadVideo(url) {
     let hasVideoSegments = false;
     let hasAudioSegments = false;
     let segmentCheckInterval = null;
-    let maxWaitTime = 30000; // Temps d'attente maximum (30 secondes)
+    let maxWaitTime = 12000; // Réduit à 12 secondes au lieu de 15
     let waitStartTime = Date.now();
+    let earlySegmentsThreshold = 1; // Réduit de 2 à 1 pour terminer plus rapidement
+
+    // Variables pour suivre la progression
+    let lastVideoSegmentCount = 0;
+    let lastAudioSegmentCount = 0;
+    let noProgressTime = 0;
+
+    // Flag pour suivre si le navigateur est fermé
+    let browserClosed = false;
 
     // Intercepter les réponses pour capturer les segments
     page.on("response", async (response) => {
       try {
+        // Ne pas traiter les réponses si le navigateur est déjà fermé
+        if (browserClosed) return;
+
         const url = response.url();
         const contentType = response.headers()["content-type"] || "";
 
         if (contentType.includes("video") && !url.startsWith("blob:")) {
-          const buffer = await response.buffer();
+          // Vérifier que la réponse peut être traitée
+          // Si la réponse a déjà été consommée ou si la cible est fermée, ignorer
+          if (!response.ok() || response._request._interceptionHandled) {
+            return;
+          }
+
+          let buffer;
+          try {
+            buffer = await response.buffer();
+          } catch (bufferError) {
+            // Si on ne peut pas obtenir le buffer (par exemple si la cible est fermée),
+            // ignorer silencieusement cette réponse
+            if (
+              bufferError.message.includes("Target closed") ||
+              bufferError.message.includes("Protocol error")
+            ) {
+              return;
+            }
+            throw bufferError;
+          }
+
           const urlParams = new URLSearchParams(url.split("?")[1]);
           const bytestart = parseInt(urlParams.get("bytestart") || "0");
           const byteend = parseInt(urlParams.get("byteend") || "0");
@@ -1426,49 +1640,171 @@ async function directDownloadVideo(url) {
           }
         }
       } catch (e) {
-        console.error("Erreur lors de l'interception de la réponse:", e);
+        // Ne logguer l'erreur que si ce n'est pas une erreur de fermeture de cible
+        if (
+          !e.message.includes("Target closed") &&
+          !e.message.includes("Protocol error")
+        ) {
+          console.error("Erreur lors de l'interception de la réponse:", e);
+        }
       }
     });
 
     try {
       // Navigation optimisée
-      await page.goto(url, { waitUntil: "networkidle0", timeout: 30000 });
-      await page.waitForSelector("video", { timeout: 10000 });
+      const navigationTimer = Timer.start("Navigation vers URL Instagram");
+      await page.goto(url, {
+        waitUntil: "load", // Changé de domcontentloaded à load (plus rapide que networkidle0, mais plus fiable que domcontentloaded)
+        timeout: 10000, // Réduit de 15000 à 10000ms
+      });
+
+      // Gérer les cookies/popups potentiels qui pourraient bloquer l'accès à la vidéo
+      try {
+        // Essayer de cliquer sur des boutons de cookies ou popups courants
+        await Promise.race([
+          page
+            .click('button[data-testid="cookie-policy-dialog-accept-button"]')
+            .catch(() => {}),
+          page
+            .click(
+              'button[data-testid="cookie-policy-manage-dialog-accept-button"]'
+            )
+            .catch(() => {}),
+          // Timeout court pour ne pas ralentir si aucun popup n'est présent
+          new Promise((resolve) => setTimeout(resolve, 1000)),
+        ]);
+      } catch (err) {
+        // Ignorer les erreurs liées à la tentative de fermeture des popups
+      }
+
+      await page.waitForSelector("video", { timeout: 8000 });
+      Timer.end(navigationTimer);
 
       // Forcer la lecture pour déclencher le chargement
       await page.evaluate(() => {
         const video = document.querySelector("video");
         if (video) {
           video.muted = true;
-          video.play().catch(() => {});
+          video.volume = 0; // S'assurer que le son est coupé
+          video.playbackRate = 3.0; // Accélérer davantage la lecture (de 2.0 à 3.0)
+          video.currentTime = 0; // Commencer depuis le début
+
+          // Créer une fonction qui avance rapidement dans la vidéo
+          const seekForward = () => {
+            // Si la vidéo a une durée, avancer par blocs de 20% de la durée
+            if (
+              video.duration &&
+              isFinite(video.duration) &&
+              video.duration > 0
+            ) {
+              const jumpSize = video.duration * 0.2; // 20% de la durée
+              video.currentTime = Math.min(
+                video.currentTime + jumpSize,
+                video.duration * 0.9
+              );
+            } else {
+              // Si la durée n'est pas disponible, avancer de 2 secondes
+              video.currentTime += 2;
+            }
+          };
+
+          // Lancer la lecture
+          const playPromise = video.play().catch(() => {});
+
+          // Programmer des sauts dans la vidéo toutes les 400ms
+          // pour forcer le téléchargement de différentes parties
+          const seekInterval = setInterval(() => {
+            seekForward();
+
+            // Après 4 sauts (soit ~1.6s), essayer de revenir au début et rejouer
+            if (
+              video.currentTime > 8 ||
+              video.currentTime > video.duration * 0.8
+            ) {
+              clearInterval(seekInterval);
+              video.currentTime = 0;
+              video.play().catch(() => {});
+            }
+          }, 400);
+
+          // Nettoyer l'intervalle après 5 secondes de toute façon
+          setTimeout(() => clearInterval(seekInterval), 5000);
         }
       });
 
       // Créer une promesse qui sera résolue quand les segments seront chargés
+      const segmentsTimer = Timer.start("Collecte des segments média");
       const waitForSegments = new Promise((resolve, reject) => {
         // Fonction pour vérifier si on a suffisamment de segments
         const checkSegments = () => {
-          const hasEnoughVideo = Object.keys(segments.video).length > 0;
-          const hasEnoughAudio = Object.keys(segments.audio).length > 0;
+          const videoSegmentCount = Object.keys(segments.video).length;
+          const audioSegmentCount = Object.keys(segments.audio).length;
+          const hasEnoughVideo = videoSegmentCount > 0;
+          const hasEnoughAudio = audioSegmentCount > 0;
           const timeElapsed = Date.now() - waitStartTime;
 
-          // Afficher le statut toutes les 2 secondes
-          if (timeElapsed % 2000 < 100) {
+          // Vérifier s'il y a eu du progrès depuis la dernière vérification
+          const hasNewVideoSegments = videoSegmentCount > lastVideoSegmentCount;
+          const hasNewAudioSegments = audioSegmentCount > lastAudioSegmentCount;
+          const hasProgress = hasNewVideoSegments || hasNewAudioSegments;
+
+          // Mettre à jour le compteur de temps sans progrès
+          if (!hasProgress) {
+            noProgressTime += 200; // On ajoute l'intervalle entre les vérifications (200ms)
+          } else {
+            noProgressTime = 0; // Réinitialiser si on a du progrès
+            lastVideoSegmentCount = videoSegmentCount;
+            lastAudioSegmentCount = audioSegmentCount;
+          }
+
+          // Afficher le statut toutes les secondes (au lieu de 2 secondes)
+          if (timeElapsed % 1000 < 100) {
             console.log(
               `Statut du chargement: vidéo=${
                 hasEnoughVideo ? "OK" : "En attente"
-              }, audio=${
+              } (${videoSegmentCount}), audio=${
                 hasEnoughAudio ? "OK" : "En attente"
-              }, temps écoulé=${Math.round(timeElapsed / 1000)}s`
+              } (${audioSegmentCount}), temps écoulé=${Math.round(
+                timeElapsed / 1000
+              )}s, sans progrès=${Math.round(noProgressTime / 1000)}s`
             );
           }
 
           // Si on a assez de segments vidéo et audio, on peut continuer
           if (hasEnoughVideo && hasEnoughAudio) {
+            // Si on a dépassé le seuil minimum, terminer
+            if (
+              videoSegmentCount >= earlySegmentsThreshold &&
+              audioSegmentCount >= earlySegmentsThreshold
+            ) {
+              console.log(
+                `Segments vidéo et audio suffisants détectés après ${Math.round(
+                  timeElapsed / 1000
+                )} secondes`
+              );
+              clearInterval(segmentCheckInterval);
+              resolve();
+            }
+            // Si on a un segment de chaque mais pas assez, continuer un peu plus
+            else if (timeElapsed > 3000) {
+              console.log(
+                `Segments minimaux détectés après ${Math.round(
+                  timeElapsed / 1000
+                )} secondes, suffisant pour continuer`
+              );
+              clearInterval(segmentCheckInterval);
+              resolve();
+            }
+          }
+          // Si on n'a pas de progrès pendant 3 secondes et qu'on a au moins un segment, terminer
+          else if (
+            noProgressTime > 3000 &&
+            (hasEnoughVideo || hasEnoughAudio)
+          ) {
             console.log(
-              `Segments vidéo et audio chargés après ${Math.round(
-                timeElapsed / 1000
-              )} secondes`
+              `Aucun nouveau segment depuis ${Math.round(
+                noProgressTime / 1000
+              )}s mais nous avons déjà des segments, poursuite du traitement...`
             );
             clearInterval(segmentCheckInterval);
             resolve();
@@ -1485,14 +1821,17 @@ async function directDownloadVideo(url) {
           }
         };
 
-        // Vérifier l'état des segments toutes les 500ms
-        segmentCheckInterval = setInterval(checkSegments, 500);
+        // Vérifier l'état des segments toutes les 200ms (au lieu de 500ms)
+        segmentCheckInterval = setInterval(checkSegments, 200);
       });
 
       // Attendre que les segments soient chargés
       await waitForSegments;
+      Timer.end(segmentsTimer);
 
+      // Le reste du code reste inchangé...
       // Combiner les segments
+      const processingTimer = Timer.start("Traitement des segments média");
       const combineSegments = (typeSegments) => {
         const combinedBuffers = [];
         for (const baseUrl in typeSegments) {
@@ -1508,6 +1847,7 @@ async function directDownloadVideo(url) {
 
       const videoBuffer = combineSegments(segments.video);
       const audioBuffer = combineSegments(segments.audio);
+      Timer.end(processingTimer);
 
       console.log(
         `Taille des buffers: vidéo=${videoBuffer.length} octets, audio=${audioBuffer.length} octets`
@@ -1530,72 +1870,88 @@ async function directDownloadVideo(url) {
         audioStream.push(audioBuffer);
         audioStream.push(null);
 
-        // Conversion audio MP3 directement avec fluent-ffmpeg
-        await new Promise((resolve, reject) => {
-          ffmpeg(audioStream)
-            .inputFormat("mp4")
-            .audioCodec("libmp3lame")
-            .audioBitrate("192k")
-            .on("start", (cmd) => console.log("Commande FFmpeg audio:", cmd))
-            .on("error", (err) => {
-              console.error("Erreur lors de la conversion audio:", err);
-              // Tenter une alternative directement depuis le buffer vidéo si l'audio échoue
-              ffmpeg(videoStream)
-                .inputFormat("mp4")
-                .noVideo()
-                .audioCodec("libmp3lame")
-                .audioBitrate("192k")
-                .on("error", (altErr) => {
-                  console.error("Erreur alternative audio:", altErr);
-                  reject(altErr);
-                })
-                .on("end", () => {
-                  console.log("Extraction audio alternative réussie");
-                  resolve();
-                })
-                .save(audioPath);
-            })
-            .on("end", () => {
-              console.log("Conversion audio MP3 réussie");
-              resolve();
-            })
-            .save(audioPath);
-        });
+        // Exécuter les deux conversions en parallèle
+        const ffmpegTimer = Timer.start("Conversion FFmpeg");
+        const [audioResult, videoResult] = await Promise.allSettled([
+          // Conversion audio MP3 directement avec fluent-ffmpeg
+          new Promise((resolve, reject) => {
+            ffmpeg(audioStream)
+              .inputFormat("mp4")
+              .audioCodec("libmp3lame")
+              .audioBitrate("192k")
+              .on("start", (cmd) => console.log("Commande FFmpeg audio:", cmd))
+              .on("error", (err) => {
+                console.error("Erreur lors de la conversion audio:", err);
+                // Tenter une alternative directement depuis le buffer vidéo si l'audio échoue
+                ffmpeg(videoStream)
+                  .inputFormat("mp4")
+                  .noVideo()
+                  .audioCodec("libmp3lame")
+                  .audioBitrate("192k")
+                  .on("error", (altErr) => {
+                    console.error("Erreur alternative audio:", altErr);
+                    reject(altErr);
+                  })
+                  .on("end", () => {
+                    console.log("Extraction audio alternative réussie");
+                    resolve();
+                  })
+                  .save(audioPath);
+              })
+              .on("end", () => {
+                console.log("Conversion audio MP3 réussie");
+                resolve();
+              })
+              .save(audioPath);
+          }),
 
-        // Fusionner la vidéo et l'audio directement avec fluent-ffmpeg
-        await new Promise((resolve, reject) => {
-          ffmpeg(videoStream)
-            .inputFormat("mp4")
-            .input(audioPath) // Ajouter l'audio déjà converti
-            .outputOptions([
-              "-c:v copy", // Copier la vidéo sans réencodage
-              "-c:a aac", // Encoder l'audio en AAC pour la compatibilité
-              "-shortest", // Utiliser le flux le plus court pour la durée
-            ])
-            .on("start", (cmd) => console.log("Commande FFmpeg fusion:", cmd))
-            .on("error", (err) => {
-              console.error("Erreur lors de la fusion:", err);
-              reject(err);
-            })
-            .on("end", () => {
-              console.log("Fusion vidéo/audio réussie");
-              resolve();
-            })
-            .save(completeVideoPath);
-        });
+          // Fusionner la vidéo et l'audio directement avec fluent-ffmpeg
+          new Promise((resolve, reject) => {
+            // Définir des options de CPU plus optimisées
+            ffmpeg(videoStream)
+              .inputFormat("mp4")
+              .outputOptions([
+                "-c:v copy", // Copier la vidéo sans réencodage
+                "-c:a aac", // Encoder l'audio en AAC pour la compatibilité
+                "-shortest", // Utiliser le flux le plus court pour la durée
+                "-threads 4", // Utiliser plusieurs threads
+                "-preset ultrafast", // Utiliser le preset le plus rapide
+              ])
+              .on("start", (cmd) => console.log("Commande FFmpeg vidéo:", cmd))
+              .on("error", (err) => {
+                console.error("Erreur lors du traitement vidéo:", err);
+                reject(err);
+              })
+              .on("end", () => {
+                console.log("Traitement vidéo réussi");
+                resolve();
+              })
+              .save(completeVideoPath);
+          }),
+        ]);
+        Timer.end(ffmpegTimer);
 
-        console.log("Fichiers créés avec succès:", {
-          video: completeVideoPath,
-          audio: audioPath,
-        });
+        if (videoResult.status === "fulfilled") {
+          console.log("Fichiers créés avec succès:", {
+            video: completeVideoPath,
+            audio: audioPath,
+          });
+        } else {
+          console.error(
+            "Erreur dans le traitement de la vidéo:",
+            videoResult.reason
+          );
+        }
       } else {
         throw new Error("Segments vidéo ou audio manquants");
       }
 
+      const totalDuration = Timer.end(totalTimer);
       return {
         success: true,
         videoPath: completeVideoPath,
         audioPath: audioPath,
+        duration: totalDuration,
       };
     } catch (error) {
       console.error("Erreur lors du téléchargement:", error);
@@ -1605,9 +1961,29 @@ async function directDownloadVideo(url) {
       if (segmentCheckInterval) {
         clearInterval(segmentCheckInterval);
       }
-      await browser.close();
+
+      // Marquer le navigateur comme fermé avant de le fermer réellement
+      browserClosed = true;
+
+      // Fermer le navigateur de manière propre
+      try {
+        if (browser && browser.isConnected()) {
+          // Fermer toutes les pages ouvertes d'abord
+          const pages = await browser.pages();
+          await Promise.all(pages.map((page) => page.close().catch(() => {})));
+
+          // Puis fermer le navigateur
+          await browser.close();
+        }
+      } catch (closeError) {
+        console.log(
+          "Erreur lors de la fermeture du navigateur (ignorée):",
+          closeError.message
+        );
+      }
     }
   } catch (error) {
+    Timer.end(totalTimer);
     console.error("Erreur dans directDownloadVideo:", error);
     return {
       success: false,
@@ -1629,7 +2005,7 @@ app.post("/process-all", async (req, res) => {
       });
     }
 
-    const startTotalTime = Date.now();
+    const totalTimer = Timer.start("Traitement complet process-all");
     console.log("Traitement complet pour:", url);
 
     // Nettoyer uniquement les dossiers frames et ocr, pas downloads
@@ -1644,6 +2020,7 @@ app.post("/process-all", async (req, res) => {
       hashtags: [],
       text: "",
       correctedTexts: [],
+      timings: {},
     };
 
     try {
@@ -1653,24 +2030,63 @@ app.post("/process-all", async (req, res) => {
       const audioPath = path.join("downloads", "reel_audio.mp3");
       let mediasExist = false;
 
+      // Vérification de l'existence des fichiers
+      const fileExists = (filePath) => {
+        try {
+          return fs.existsSync(filePath) && fs.statSync(filePath).size > 0;
+        } catch (e) {
+          return false;
+        }
+      };
+
+      // Vérifier si les médias existent déjà
+      if (fileExists(videoPath) && fileExists(audioPath)) {
+        console.log("Vidéo et audio déjà disponibles, réutilisation...");
+        mediasExist = true;
+      } else {
+        console.log("Téléchargement des médias requis...");
+      }
+
+      // Si les médias n'existent pas, générer des URLs temporaires de retour rapide
+      if (!mediasExist) {
+        // Renvoyer une première réponse rapide avec le statut en cours
+        // Pas besoin d'attendre que tout soit prêt pour commencer à montrer des résultats
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+          "X-Processing-Status": "downloading",
+        });
+        res.write(
+          JSON.stringify({
+            success: true,
+            videoUrl: `/download/video/reel_complete.mp4`,
+            audioUrl: `/download/audio/reel_audio.mp3`,
+            processing: true,
+            message: "Téléchargement en cours, veuillez patienter...",
+          })
+        );
+
+        // Ne pas terminer la réponse, on va envoyer des mises à jour en temps réel
+        // en utilisant les chunks
+      }
+
       // Lancer un tableau de promesses pour exécuter certaines tâches en parallèle
       const promises = [];
 
       // Promesse 1: Téléchargement de la vidéo (prioritaire) et préparation des frames
       const downloadAndPreparePromise = (async () => {
         // Vérifier si les fichiers existent déjà
-        if (fs.existsSync(videoPath) && fs.existsSync(audioPath)) {
-          console.log("Vidéo et audio déjà disponibles, réutilisation...");
-          mediasExist = true;
+        if (mediasExist) {
+          console.log("Utilisation des fichiers existants");
         } else {
           console.log("Téléchargement de la vidéo et de l'audio...");
           const downloadStartTime = Date.now();
+          const downloadTimer = Timer.start("Téléchargement vidéo et audio");
           const videoResult = await directDownloadVideo(url);
-          const downloadTime = (
-            (Date.now() - downloadStartTime) /
-            1000
-          ).toFixed(2);
-          console.log(`Téléchargement terminé en ${downloadTime}s`);
+          const downloadDuration = Timer.end(downloadTimer);
+          results.timings.download = downloadDuration;
+          console.log(
+            `Téléchargement terminé en ${downloadDuration.toFixed(2)}s`
+          );
 
           if (!videoResult.success) {
             throw new Error("Échec du téléchargement de la vidéo");
@@ -1678,7 +2094,7 @@ app.post("/process-all", async (req, res) => {
           mediasExist = true;
         }
 
-        if (!mediasExist || !fs.existsSync(videoPath)) {
+        if (!mediasExist || !fileExists(videoPath)) {
           throw new Error("La vidéo n'a pas pu être trouvée ou téléchargée");
         }
 
@@ -1691,12 +2107,29 @@ app.post("/process-all", async (req, res) => {
         });
 
         // Démarrer l'extraction des frames immédiatement après le téléchargement
-        // pour accélérer le processus global
         console.log("Extraction des frames en parallèle...");
-        const extractStartTime = Date.now();
-        await extractFramesFromVideo(videoPath, "frames");
-        const extractTime = ((Date.now() - extractStartTime) / 1000).toFixed(2);
-        console.log(`Extraction des frames terminée en ${extractTime}s`);
+        const extractionTimer = Timer.start("Extraction des frames");
+
+        // Utiliser la stratégie d'échantillonnage adaptative pour les mèmes
+        const framesResult = await extractFramesFromVideo(videoPath, "frames");
+
+        const extractionDuration = Timer.end(extractionTimer);
+        results.timings.extraction = extractionDuration;
+        console.log(
+          `Extraction des frames terminée en ${extractionDuration.toFixed(
+            2
+          )}s avec ${framesResult.totalFrames} frames`
+        );
+
+        // Ajouter des informations sur la stratégie d'échantillonnage aux résultats
+        if (framesResult.strategy) {
+          results.frameStrategy = framesResult.strategy;
+          console.log(
+            `Stratégie d'échantillonnage: intervalle=${framesResult.strategy.interval.toFixed(
+              1
+            )}s, frames cible=${framesResult.strategy.framesTarget}`
+          );
+        }
       })();
 
       // Ajouter la promesse de téléchargement au tableau
@@ -1704,29 +2137,69 @@ app.post("/process-all", async (req, res) => {
 
       // Promesse 2: Extraction des métadonnées (peut se faire en parallèle)
       const metadataPromise = (async () => {
+        const metadataTimer = Timer.start("Extraction des métadonnées");
         console.log("Extraction des métadonnées en parallèle...");
-        const metadataStartTime = Date.now();
         try {
-          const metadataResult = await scrapeInstagram(url);
-          const metadataTime = (
-            (Date.now() - metadataStartTime) /
-            1000
-          ).toFixed(2);
-          console.log(`Métadonnées extraites en ${metadataTime}s`);
+          // Faire plusieurs tentatives si nécessaire pour l'extraction des métadonnées
+          let metadataResult = null;
+          let attempts = 0;
+          const maxAttempts = 2;
+
+          while (
+            attempts < maxAttempts &&
+            (!metadataResult || metadataResult.hashtags.length === 0)
+          ) {
+            attempts++;
+            console.log(
+              `Tentative d'extraction des métadonnées ${attempts}/${maxAttempts}...`
+            );
+            metadataResult = await scrapeInstagram(url);
+
+            // Si nous avons au moins un hashtag, on considère que c'est un succès
+            if (
+              metadataResult &&
+              metadataResult.hashtags &&
+              metadataResult.hashtags.length > 0
+            ) {
+              console.log(
+                `Extraction réussie avec ${metadataResult.hashtags.length} hashtags`
+              );
+              break;
+            } else {
+              console.log("Aucun hashtag trouvé, nouvelle tentative...");
+              // Attendre un peu avant de réessayer
+              await new Promise((resolve) => setTimeout(resolve, 1000));
+            }
+          }
+
+          const metadataDuration = Timer.end(metadataTimer);
+          results.timings.metadata = metadataDuration;
+          console.log(
+            `Métadonnées extraites en ${metadataDuration.toFixed(2)}s`
+          );
 
           if (metadataResult) {
+            // Assurer que nous avons des valeurs valides
             results.description = metadataResult.description || "";
             results.hashtags = metadataResult.hashtags || [];
+
+            // Log pour vérifier ce qui a été extrait
             console.log("Métadonnées extraites:", {
               description:
                 results.description.substring(0, 50) +
                 (results.description.length > 50 ? "..." : ""),
               hashtags: results.hashtags,
+              tentatives: attempts,
             });
+          } else {
+            console.warn(
+              "Aucune métadonnée n'a pu être extraite après plusieurs tentatives"
+            );
           }
         } catch (error) {
+          Timer.end(metadataTimer);
           console.error("Erreur lors de l'extraction des métadonnées:", error);
-          // On ne lance pas d'erreur ici pour ne pas interrompre le processus principal
+          // Ne pas lancer d'erreur pour ne pas interrompre le processus principal
         }
       })();
 
@@ -1756,9 +2229,11 @@ app.post("/process-all", async (req, res) => {
         // Étape 3: Traitement OCR des frames
         console.log("3. Analyse OCR du texte dans la vidéo...");
         const ocrStartTime = Date.now();
+        const ocrTimer = Timer.start("Traitement OCR");
         await processFramesWithEasyOCRService(framesDir, "fra");
-        const ocrTime = ((Date.now() - ocrStartTime) / 1000).toFixed(2);
-        console.log(`Traitement OCR terminé en ${ocrTime}s`);
+        const ocrDuration = Timer.end(ocrTimer);
+        results.timings.ocr = ocrDuration;
+        console.log(`Traitement OCR terminé en ${ocrDuration.toFixed(2)}s`);
 
         // Vérifier les résultats OCR
         const resultsPath = path.join("ocr", "easyocr_results.json");
@@ -1808,17 +2283,20 @@ app.post("/process-all", async (req, res) => {
       }
 
       // Calculer le temps total de traitement
-      const totalProcessingTime = (
-        (Date.now() - startTotalTime) /
-        1000
-      ).toFixed(2);
+      const totalDuration = Timer.end(totalTimer);
+      results.timings = {
+        total: totalDuration,
+      };
 
       // Renvoyer tous les résultats collectés
       console.log(
-        `Traitement complet terminé en ${totalProcessingTime}s, envoi des résultats...`
+        `Traitement complet terminé en ${totalDuration.toFixed(
+          2
+        )}s, envoi des résultats...`
       );
       return res.json(results);
     } catch (processingError) {
+      Timer.end(totalTimer);
       console.error("Erreur pendant le traitement:", processingError);
       throw processingError;
     }
@@ -1875,7 +2353,18 @@ app.post("/direct-process-ocr", async (req, res) => {
     console.log("2. Extraction des frames de la vidéo...");
     console.log("Chemin de la vidéo pour extraction:", videoPath);
 
-    await extractFramesFromVideo(videoPath, "frames");
+    // Utiliser la stratégie d'échantillonnage adaptative pour les mèmes
+    const extractionTimer = Timer.start("Extraction adaptative des frames");
+    const framesResult = await extractFramesFromVideo(videoPath, "frames");
+    const extractionDuration = Timer.end(extractionTimer);
+
+    console.log(
+      `Extraction terminée en ${extractionDuration.toFixed(2)}s avec ${
+        framesResult.totalFrames
+      } frames selon stratégie: intervalle=${framesResult.strategy?.interval.toFixed(
+        1
+      )}s`
+    );
 
     // Vérifier que les frames ont été créées
     const framesDir = "./frames";
@@ -1953,55 +2442,75 @@ app.post("/direct-process-ocr", async (req, res) => {
 
 // Nouvelle route pour l'extraction directe des métadonnées
 app.post("/direct-extract-metadata", async (req, res) => {
+  console.log("Requête d'extraction directe des métadonnées reçue:", req.body);
+  const { url } = req.body;
+
+  if (!url || !url.includes("instagram.com")) {
+    return res.status(400).json({
+      success: false,
+      error: "URL Instagram valide requise",
+    });
+  }
+
   try {
-    console.log(
-      "Requête d'extraction directe des métadonnées reçue:",
-      req.body
-    );
-    const { url } = req.body;
-
-    if (!url || !url.includes("instagram.com")) {
-      return res.status(400).json({
-        success: false,
-        error: "URL Instagram valide requise",
-      });
-    }
-
     console.log(
       "Utilisation de la fonction scrapeInstagram pour l'extraction..."
     );
-    try {
-      // Utiliser notre fonction robuste scrapeInstagram
-      const { description, hashtags } = await scrapeInstagram(url);
 
-      console.log("Métadonnées extraites avec succès:", {
-        description: description
-          ? description.substring(0, 50) +
-            (description.length > 50 ? "..." : "")
-          : "Aucune",
-        hashtags: hashtags || [],
-      });
+    // Faire plusieurs tentatives pour l'extraction des métadonnées
+    let metadataResult = null;
+    let attempts = 0;
+    const maxAttempts = 2;
 
-      // Retourner les métadonnées
-      return res.json({
-        success: true,
-        description: description || "",
-        hashtags: hashtags || [],
-      });
-    } catch (error) {
-      console.error("Erreur lors de l'extraction des métadonnées:", error);
-      throw new Error(
-        "Échec de l'extraction des métadonnées: " + error.message
+    while (attempts < maxAttempts) {
+      attempts++;
+      console.log(
+        `Tentative d'extraction des métadonnées ${attempts}/${maxAttempts}...`
       );
+      metadataResult = await scrapeInstagram(url);
+
+      // Si nous avons au moins des hashtags ou une description valide, c'est un succès
+      if (
+        metadataResult &&
+        ((metadataResult.hashtags && metadataResult.hashtags.length > 0) ||
+          (metadataResult.description &&
+            metadataResult.description !== "Aucune description disponible"))
+      ) {
+        console.log(`Extraction réussie à la tentative ${attempts}`);
+        break;
+      } else if (attempts < maxAttempts) {
+        console.log("Données insuffisantes, nouvelle tentative...");
+        // Attendre un peu avant de réessayer
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
     }
+
+    // Assurer que nous avons des valeurs par défaut si l'extraction a échoué
+    const description =
+      metadataResult?.description || "Aucune description disponible";
+    const hashtags = metadataResult?.hashtags || [];
+
+    console.log("Métadonnées extraites avec succès:", {
+      description:
+        description.substring(0, 100) + (description.length > 100 ? "..." : ""),
+      hashtags,
+      attempts,
+    });
+
+    return res.json({
+      success: true,
+      description,
+      hashtags,
+      processing_time: metadataResult?.duration || 0,
+    });
   } catch (error) {
-    console.error(
-      "Erreur lors de l'extraction directe des métadonnées:",
-      error
-    );
+    console.error("Erreur lors de l'extraction des métadonnées:", error);
     return res.status(500).json({
       success: false,
       error: error.message || "Erreur lors de l'extraction des métadonnées",
+      // Renvoyer quand même des valeurs par défaut pour éviter les erreurs côté client
+      description: "Aucune description disponible",
+      hashtags: [],
     });
   }
 });

@@ -40,6 +40,23 @@ EzMeme utilise une architecture client-serveur avec 3 composants principaux :
 6. L'IA (OpenAI) corrige et améliore les textes extraits.
 7. Les résultats sont renvoyés à l'extension pour affichage.
 
+### Architecture technique détaillée
+
+L'application repose sur deux services principaux :
+
+1. **Serveur principal Node.js** (server.js) :
+
+   - Fonctionne sur le port 3000 par défaut
+   - Gère les requêtes HTTP, le téléchargement de contenu, l'extraction des frames
+   - Communique avec le service EasyOCR
+
+2. **Service EasyOCR Python** (easyocr/service.py) :
+   - Fonctionne sur le port 5000 par défaut
+   - Gère l'OCR via des modèles préchargés (GPU et CPU)
+   - Intègre l'API OpenAI pour la correction de texte
+
+Les deux services sont indépendants et communiquent via HTTP. Le serveur principal démarre automatiquement le service EasyOCR au démarrage si celui-ci n'est pas déjà en cours d'exécution.
+
 ## Installation
 
 ### Prérequis
@@ -50,6 +67,16 @@ EzMeme utilise une architecture client-serveur avec 3 composants principaux :
 - **Conda** ou autre gestionnaire d'environnements Python
 - **Clé API OpenAI** (pour la correction de texte)
 - **Chrome** ou **Firefox** pour l'extension
+- **CUDA** (optionnel mais recommandé pour accélérer l'OCR)
+
+#### Versions exactes testées
+
+- Node.js: v16.14.0
+- Python: v3.8.13
+- FFmpeg: v5.1.2
+- Conda: v4.13.0
+- Chrome: v110+
+- Firefox: v100+
 
 ### Étapes d'installation
 
@@ -74,19 +101,43 @@ conda activate ezmeme
 pip install -r easyocr/requirements.txt
 ```
 
+**Important** : Sur Windows, si vous utilisez CUDA, vous pourriez rencontrer des erreurs liées à OpenMP. Ajoutez alors la variable d'environnement suivante :
+
+```
+set KMP_DUPLICATE_LIB_OK=TRUE
+```
+
 #### 4. Configuration des variables d'environnement
 
-Créez un fichier `.env` à la racine du projet avec le contenu suivant :
+Copiez le fichier d'exemple de configuration `.env-example` vers `.env` :
+
+```bash
+cp .env-example .env
+```
+
+Puis modifiez le fichier `.env` avec vos paramètres :
 
 ```
+# Configuration de l'API OpenAI
 OPENAI_API_KEY=votre-clé-api-openai
+
+# Configuration de l'API EasyOCR
+EASYOCR_GPU_ENABLED=true  # Mettre false si pas de GPU compatible CUDA
+CUDA_VISIBLE_DEVICES=0    # Modifier si plusieurs GPU
+EASYOCR_SERVICE_PORT=5000
+EASYOCR_SERVICE_HOST=127.0.0.1
+
+# Autres paramètres
 DEBUG_MODE=False
-EASYOCR_GPU_ENABLED=True
 ```
 
-Modifiez la valeur de `EASYOCR_GPU_ENABLED` en fonction de votre matériel (mettez `False` si vous n'avez pas de GPU compatible CUDA).
+#### 5. Création des répertoires nécessaires
 
-#### 5. Installation de l'extension navigateur
+```bash
+mkdir -p downloads frames ocr
+```
+
+#### 6. Installation de l'extension navigateur
 
 1. Ouvrez Chrome ou Firefox
 2. Accédez aux extensions (`chrome://extensions` ou `about:addons`)
@@ -99,10 +150,22 @@ Modifiez la valeur de `EASYOCR_GPU_ENABLED` en fonction de votre matériel (mett
 ### Démarrer le serveur
 
 ```bash
-npm start
+node server.js
 ```
 
-Le serveur démarrera sur le port 3000 (par défaut). Vous pouvez modifier le port dans le fichier `.env`.
+**Important** : Le premier démarrage peut prendre jusqu'à 2 minutes car le système doit :
+
+1. Démarrer le service EasyOCR Python
+2. Précharger les modèles de reconnaissance OCR volumineux
+
+Un message "Service EasyOCR démarré et prêt" indiquera que le système est opérationnel.
+
+### Ports utilisés
+
+- **Serveur principal** : Port 3000 par défaut (configurable)
+- **Service EasyOCR** : Port 5000 par défaut (configurable dans .env)
+
+Assurez-vous que ces ports sont disponibles ou modifiez-les dans les configurations.
 
 ### Utiliser l'extension
 
@@ -115,29 +178,40 @@ Le serveur démarrera sur le port 3000 (par défaut). Vous pouvez modifier le po
    - Analyser le texte dans la vidéo (OCR)
    - Tout traiter en une seule opération
 
+### Configuration de l'OCR
+
+Vous pouvez ajuster plusieurs paramètres pour l'OCR dans le fichier `easyocr/service.py` :
+
+- **Taille de redimensionnement** : Définie à 30% par défaut (ajustable via l'API)
+- **Seuil de détection de texte** : 0.6 par défaut (plus bas = plus sensible)
+- **Taille de batch** : 8 pour GPU, 1 pour CPU
+
 ## Structure du projet
 
 ```
 EzMeme/
 │
 ├── server.js                    # Serveur principal Node.js
-├── main.js                      # Point d'entrée de l'application
 ├── .env                         # Variables d'environnement
+├── .env-example                 # Exemple de configuration
 │
 ├── downloads/                   # Répertoire de téléchargements
 ├── frames/                      # Images extraites des vidéos
 ├── ocr/                         # Résultats de l'analyse OCR
 │
 ├── easyocr/                     # Module Python OCR
-│   ├── index.py                 # Script principal OCR
+│   ├── service.py               # Service API OCR
+│   ├── index.py                 # Script alternatif OCR
 │   └── requirements.txt         # Dépendances Python
 │
 └── instagram-extension/         # Extension navigateur
     ├── manifest.json            # Configuration de l'extension
     ├── popup.html               # Interface utilisateur
     ├── popup.js                 # Logique de l'interface
-    ├── background.js            # Service worker en arrière-plan
     ├── content.js               # Script intégré aux pages Instagram
+    ├── modal.js                 # Gestion des fenêtres modales
+    ├── background.js            # Service worker en arrière-plan
+    ├── package.json             # Dépendances de l'extension
     └── icons/                   # Icônes de l'extension
 ```
 
@@ -158,6 +232,40 @@ Le serveur expose plusieurs endpoints REST :
 
 Tous les endpoints POST acceptent un objet JSON avec une propriété `url` contenant l'URL Instagram à traiter.
 
+### Exemple de requête
+
+```bash
+curl -X POST http://localhost:3000/direct-download-video \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://www.instagram.com/reel/XYZ123/"}'
+```
+
+### Exemple de réponse
+
+```json
+{
+  "success": true,
+  "message": "Vidéo téléchargée avec succès",
+  "data": {
+    "videoUrl": "http://localhost:3000/download/video/instagram_XYZ123.mp4",
+    "metadata": {
+      "duration": "00:15",
+      "size": "2.4MB"
+    }
+  }
+}
+```
+
+## API du service EasyOCR
+
+Le service Python expose les endpoints suivants :
+
+| Endpoint         | Méthode | Description                               |
+| ---------------- | ------- | ----------------------------------------- |
+| `/health`        | GET     | Vérifie l'état du service                 |
+| `/process`       | POST    | Traite une image avec OCR                 |
+| `/correct-texts` | POST    | Corrige un ensemble de textes avec OpenAI |
+
 ## Fonctionnement détaillé du processus OCR
 
 1. **Extraction des frames** : FFmpeg extrait 1 image par seconde de la vidéo
@@ -168,15 +276,6 @@ Tous les endpoints POST acceptent un objet JSON avec une propriété `url` conte
 6. **Correction IA** : OpenAI GPT-3.5 corrige les erreurs et améliore la qualité du texte extrait
 7. **Filtrage** : Élimination des résultats non significatifs ou trop courts
 
-## Gestion des fichiers temporaires
-
-Le système gère automatiquement plusieurs types de fichiers temporaires :
-
-- **Fichiers téléchargés** : Nettoyage automatique après 24 heures
-- **Frames extraites** : Nettoyées au début de chaque nouvelle analyse
-- **Fichiers de logs** : Rotation automatique (limite de 5 fichiers)
-- **Scripts batch** : Supprimés après utilisation
-
 ## Performances et optimisation
 
 - **Support GPU** : Accélération matérielle pour EasyOCR si disponible
@@ -184,32 +283,114 @@ Le système gère automatiquement plusieurs types de fichiers temporaires :
 - **Mise en cache** : Les résultats sont mis en cache pour éviter les traitements redondants
 - **Streaming** : Utilisation de streams Node.js pour gérer efficacement les gros fichiers
 
+### Optimisation des performances OCR
+
+1. **Préchargement des modèles** : Les modèles sont chargés au démarrage du service
+2. **Double mode GPU/CPU** : Fallback automatique vers CPU si le GPU n'est pas disponible
+3. **Redimensionnement adaptatif** : Les images sont redimensionnées à 30% par défaut
+4. **Parallélisation** : Traitement de plusieurs images simultanément
+
 ## Dépannage
 
 ### Problèmes courants
 
 1. **Le serveur ne démarre pas**
 
-   - Vérifiez que le port 3000 est disponible
+   - Vérifiez que les ports 3000 et 5000 sont disponibles
    - Assurez-vous que Node.js est correctement installé
+   - Vérifiez les logs dans la console
 
 2. **L'OCR ne fonctionne pas**
 
    - Vérifiez que l'environnement Conda `ezmeme` est activé
    - Vérifiez que toutes les dépendances Python sont installées
    - Assurez-vous que la clé API OpenAI est valide
+   - Sur Windows, vérifiez la variable `KMP_DUPLICATE_LIB_OK=TRUE`
 
-3. **L'extension ne se connecte pas au serveur**
+3. **Service EasyOCR lent au démarrage**
+
+   - C'est normal, le premier chargement des modèles prend 1-2 minutes
+   - Les lancements suivants seront plus rapides tant que le service reste actif
+   - Vous pouvez préchauffer le service séparément : `python easyocr/service.py`
+
+4. **L'extension ne se connecte pas au serveur**
+
    - Vérifiez que le serveur est en cours d'exécution
    - Vérifiez les paramètres CORS dans le navigateur
+   - Vérifiez les permissions dans manifest.json
 
-### Logs
+5. **Problèmes de CUDA**
+   - Vérifiez l'installation de CUDA (version recommandée: 11.x)
+   - Essayez de désactiver le GPU en mettant `EASYOCR_GPU_ENABLED=false` dans .env
+
+### Logs et diagnostics
 
 Les logs sont disponibles dans les emplacements suivants :
 
-- **Serveur** : Console Node.js
-- **OCR** : Fichiers dans le dossier `ocr/`
+- **Serveur principal** : Console Node.js
+- **Service EasyOCR** : Console Python du service
 - **Extension** : Console développeur du navigateur (F12 > Onglet Console)
+
+Pour activer les logs détaillés :
+
+1. Définissez `DEBUG_MODE=True` dans le fichier `.env`
+2. Redémarrez les services
+
+## Développement avancé
+
+### Architecture des modèles OCR
+
+EasyOCR utilise deux réseaux de neurones :
+
+1. **Détecteur** : Localise les zones de texte (CRAFT)
+2. **Reconnaisseur** : Convertit l'image en texte (CRNN)
+
+### Modèles de langage
+
+Par défaut, l'OCR est configuré pour le français et l'anglais. Pour ajouter d'autres langues, modifiez les paramètres du reader dans `easyocr/service.py` :
+
+```python
+reader = easyocr.Reader(['fr', 'en', 'es'], # Ajoutez d'autres langues ici
+                       gpu=True,
+                       quantize=False)
+```
+
+### Correction avancée avec OpenAI
+
+Le système utilise l'API OpenAI GPT-3.5-Turbo pour corriger les textes extraits. Vous pouvez personnaliser :
+
+- Le prompt système (défini dans service.py)
+- Le modèle (gpt-3.5-turbo-16k par défaut)
+- Les paramètres de génération (température, top_p, etc.)
+
+## Maintenir le projet
+
+### Dépendances critiques
+
+Le projet dépend de plusieurs bibliothèques majeures :
+
+1. **EasyOCR** : OCR multilingue basé sur PyTorch
+2. **Puppeteer** : Automatisation de Chrome pour le téléchargement
+3. **FFmpeg** : Traitement des médias et extraction de frames
+4. **OpenAI** : Correction de texte
+
+La mise à jour de ces dépendances peut nécessiter des tests approfondis.
+
+### Mise à jour de l'extension
+
+Pour mettre à jour l'extension :
+
+1. Modifiez les fichiers dans le dossier `instagram-extension/`
+2. Incrémentez la version dans `manifest.json`
+3. Rechargez l'extension dans le navigateur
+
+### Compatibilité avec Instagram
+
+Instagram modifie fréquemment son interface et sa structure HTML. Si l'extension cesse de fonctionner :
+
+1. Examinez les logs de la console du navigateur
+2. Vérifiez si les sélecteurs CSS dans `content.js` doivent être mis à jour
+3. Testez avec différentes types de posts (reels, stories, posts normaux)
 
 ## Contribuer au projet
 
@@ -217,9 +398,15 @@ Les contributions sont les bienvenues ! Voici comment procéder :
 
 1. Forkez le dépôt
 2. Créez une branche pour votre fonctionnalité (`git checkout -b feature/ma-fonctionnalite`)
-3. Committez vos changements (`git commit -m 'Ajout de ma fonctionnalité'`)
+3. Committez vos changements (`git commit -m 'Ajout de ma fonctionnalite'`)
 4. Poussez vers la branche (`git push origin feature/ma-fonctionnalite`)
 5. Ouvrez une Pull Request
+
+### Style de code et conventions
+
+- **JavaScript** : Style ESM, avec import/export
+- **Python** : PEP 8, avec docstrings
+- **Commentaires** : Français de préférence
 
 ## Licence
 

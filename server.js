@@ -18,6 +18,318 @@ import os from "os";
 // Charger les variables d'environnement depuis le fichier .env
 dotenv.config();
 
+// Configuration du service EasyOCR
+const EASYOCR_SERVICE_PORT = process.env.EASYOCR_SERVICE_PORT || 5000;
+const EASYOCR_SERVICE_HOST = process.env.EASYOCR_SERVICE_HOST || "127.0.0.1";
+const EASYOCR_SERVICE_URL = `http://${EASYOCR_SERVICE_HOST}:${EASYOCR_SERVICE_PORT}`;
+let ocrServiceStarted = false;
+
+// Fonction pour démarrer le service EasyOCR au démarrage du serveur
+async function startEasyOCRService() {
+  // Vérifier si le service est déjà en cours d'exécution
+  try {
+    const response = await fetch(`${EASYOCR_SERVICE_URL}/health`, {
+      timeout: 1000,
+    });
+    if (response.ok) {
+      console.log("Service EasyOCR déjà en cours d'exécution");
+      ocrServiceStarted = true;
+      return true;
+    }
+  } catch (error) {
+    console.log("Service EasyOCR non détecté, démarrage...");
+  }
+
+  // Utiliser conda run pour démarrer le service Python en arrière-plan
+  const condaPath = "conda";
+  const condaEnv = "ezmeme";
+  const pythonScript = path.join(__dirname, "easyocr", "service.py");
+
+  // Définir les variables d'environnement pour résoudre le problème OpenMP
+  const env = {
+    ...process.env,
+    KMP_DUPLICATE_LIB_OK: "TRUE",
+  };
+
+  // Démarrer le service en arrière-plan
+  const serviceProcess = spawn(
+    condaPath,
+    [
+      "run",
+      "-n",
+      condaEnv,
+      "python",
+      pythonScript,
+      "--port",
+      EASYOCR_SERVICE_PORT.toString(),
+      "--host",
+      EASYOCR_SERVICE_HOST,
+    ],
+    {
+      env,
+      detached: true, // Exécuter en arrière-plan
+      stdio: ["ignore", "pipe", "pipe"], // Rediriger stdout et stderr pour le débogage
+    }
+  );
+
+  // Écouter la sortie du processus pour le débogage
+  serviceProcess.stdout.on("data", (data) => {
+    console.log(`Service EasyOCR: ${data}`);
+  });
+
+  serviceProcess.stderr.on("data", (data) => {
+    console.error(`Erreur Service EasyOCR: ${data}`);
+  });
+
+  // Ne pas attendre la fin du processus (il est détaché)
+  serviceProcess.unref();
+
+  // Attendre que le service soit prêt (vérification toutes les secondes)
+  let attempts = 0;
+  const maxAttempts = 30; // Attendre maximum 30 secondes
+
+  while (attempts < maxAttempts) {
+    try {
+      const response = await fetch(`${EASYOCR_SERVICE_URL}/health`, {
+        timeout: 1000,
+      });
+      if (response.ok) {
+        console.log("Service EasyOCR démarré et prêt");
+        ocrServiceStarted = true;
+        return true;
+      }
+    } catch (error) {
+      // Ignorer les erreurs et réessayer
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    attempts++;
+    console.log(`Attente du service EasyOCR... (${attempts}/${maxAttempts})`);
+  }
+
+  console.error("Impossible de démarrer le service EasyOCR");
+  return false;
+}
+
+// Fonction pour utiliser le service EasyOCR via l'API
+async function processImageWithEasyOCRService(imagePath, options = {}) {
+  if (!ocrServiceStarted) {
+    throw new Error("Le service EasyOCR n'est pas démarré");
+  }
+
+  // Lire l'image et la convertir en Base64
+  const imageBuffer = fs.readFileSync(imagePath);
+  const imageBase64 = imageBuffer.toString("base64");
+
+  try {
+    // Envoyer l'image au service
+    const response = await fetch(`${EASYOCR_SERVICE_URL}/process`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        image: imageBase64,
+        use_gpu: options.useGpu !== false, // Par défaut, utiliser le GPU si disponible
+        scale_percent: options.scale || 30,
+        correct_text: options.correctText || false, // Activer la correction de texte si demandé
+      }),
+      timeout: 30000, // 30 secondes de timeout
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `Erreur du service OCR: ${response.status} - ${errorText}`
+      );
+    }
+
+    const result = await response.json();
+    return result;
+  } catch (error) {
+    console.error(`Erreur lors de l'appel au service OCR: ${error.message}`);
+    throw error;
+  }
+}
+
+// Fonction pour traiter plusieurs images avec le service EasyOCR
+async function processFramesWithEasyOCRService(framesDir, language = "fra") {
+  console.log(
+    `Traitement OCR des frames dans ${framesDir} avec le service EasyOCR...`
+  );
+  const startTime = Date.now();
+
+  // Vérifier que le dossier frames existe et contient des images
+  if (!fs.existsSync(framesDir)) {
+    console.error(`Dossier frames non trouvé: ${framesDir}`);
+    throw new Error(`Dossier frames non trouvé: ${framesDir}`);
+  }
+
+  const framePaths = fs
+    .readdirSync(framesDir)
+    .filter(
+      (file) =>
+        file.toLowerCase().endsWith(".png") ||
+        file.toLowerCase().endsWith(".jpg")
+    )
+    .map((file) => path.join(framesDir, file));
+
+  if (framePaths.length === 0) {
+    console.error("Aucune frame trouvée dans le dossier frames");
+    throw new Error("Aucune frame à traiter");
+  }
+
+  // Options d'optimisation
+  const options = {
+    useGpu: process.env.EASYOCR_GPU_ENABLED,
+    scale: 30, // Redimensionnement à 30%
+    correctText: false, // Par défaut, ne pas corriger à l'étape de l'image (mais le faire globalement après)
+  };
+
+  console.log(
+    `Traitement de ${framePaths.length} images avec options:`,
+    options
+  );
+
+  // Traiter chaque image
+  const results = [];
+  const texts = [];
+
+  for (let i = 0; i < framePaths.length; i++) {
+    try {
+      console.log(
+        `Traitement de l'image ${i + 1}/${framePaths.length}: ${framePaths[i]}`
+      );
+      const result = await processImageWithEasyOCRService(
+        framePaths[i],
+        options
+      );
+
+      if (result.text && result.text.trim()) {
+        texts.push(result.text);
+        results.push({
+          text: result.text,
+          text_type: "raw",
+          image: path.basename(framePaths[i]),
+          confidence: 0.7,
+          is_significant: result.text.trim().length > 3,
+        });
+      }
+
+      console.log(
+        `Image ${i + 1} traitée en ${result.performance.total_time.toFixed(
+          2
+        )}s (GPU=${result.performance.gpu_used})`
+      );
+      console.log(
+        `Texte extrait: ${result.text.substring(0, 100)}${
+          result.text.length > 100 ? "..." : ""
+        }`
+      );
+    } catch (error) {
+      console.error(
+        `Erreur lors du traitement de l'image ${framePaths[i]}: ${error.message}`
+      );
+    }
+  }
+
+  // Créer le dossier ocr s'il n'existe pas
+  const ocrDir = path.join(path.dirname(framesDir), "ocr");
+  fs.mkdirSync(ocrDir, { recursive: true });
+
+  // Si nous avons des textes, les corriger avec l'API ChatGPT via le service EasyOCR
+  if (texts.length > 0) {
+    try {
+      console.log(
+        `Regroupement et correction des ${texts.length} textes détectés...`
+      );
+      const correctionStart = Date.now();
+
+      // Envoyer tous les textes au service pour correction
+      const response = await fetch(`${EASYOCR_SERVICE_URL}/correct-texts`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          texts: texts,
+          group_similar: true,
+          similarity_threshold: 0.7,
+        }),
+        timeout: 60000, // 60 secondes de timeout pour la correction
+      });
+
+      if (response.ok) {
+        const correctionResult = await response.json();
+        const correctionTime = ((Date.now() - correctionStart) / 1000).toFixed(
+          2
+        );
+
+        console.log(`Correction des textes terminée en ${correctionTime}s`);
+
+        if (correctionResult.success && correctionResult.grouped_corrections) {
+          const correctedResults = [];
+
+          // Traiter chaque groupe corrigé
+          correctionResult.grouped_corrections.forEach((group, index) => {
+            console.log(
+              `Groupe ${index + 1}: ${
+                group.original_texts.length
+              } textes similaires`
+            );
+            console.log(
+              `Texte corrigé: ${group.corrected_text.substring(0, 100)}${
+                group.corrected_text.length > 100 ? "..." : ""
+              }`
+            );
+
+            // Trouver l'image source du premier texte du groupe
+            const originalText = group.original_texts[0];
+            const originalResult = results.find((r) => r.text === originalText);
+            const image = originalResult ? originalResult.image : "unknown";
+
+            // Ajouter le résultat corrigé
+            correctedResults.push({
+              text: group.corrected_text,
+              text_type: "corrected",
+              image: image,
+              confidence: 0.95, // Haute confiance pour les textes corrigés par IA
+              is_significant: group.corrected_text.trim().length > 3,
+              original_texts: group.original_texts,
+            });
+          });
+
+          // Ajouter les résultats corrigés à notre liste
+          results.push(...correctedResults);
+
+          console.log(
+            `${correctedResults.length} groupes de textes corrigés ajoutés`
+          );
+        }
+      } else {
+        const errorText = await response.text();
+        console.error(`Erreur lors de la correction des textes: ${errorText}`);
+      }
+    } catch (error) {
+      console.error(
+        `Erreur lors de l'appel au service de correction: ${error.message}`
+      );
+      // Continuer sans correction
+    }
+  }
+
+  // Écrire les résultats
+  const outputFile = path.join(ocrDir, "easyocr_results.json");
+  fs.writeFileSync(outputFile, JSON.stringify(results, null, 2), "utf8");
+
+  const processingTime = ((Date.now() - startTime) / 1000).toFixed(2);
+  console.log(
+    `Traitement OCR terminé en ${processingTime}s, ${results.length} textes extraits`
+  );
+
+  return results;
+}
+
 // Middleware de validation d'URL Instagram
 const validateInstagramUrl = (req, res, next) => {
   const { url } = req.body;
@@ -439,106 +751,86 @@ async function scrapeInstagram(url) {
   }
 }
 
-// Fonction pour extraire les frames
-function extractFrames(videoPath) {
+// Ajouter une fonction pour optimiser l'extraction de frames avec ffmpeg
+async function extractFramesFromVideo(videoPath, outputFolder, maxFrames = 40) {
   return new Promise((resolve, reject) => {
-    console.log("Extraction des frames de la vidéo:", videoPath);
+    console.log(`Extraction des frames de la vidéo ${videoPath}...`);
+    const startTime = Date.now();
 
+    // Vérifier que la vidéo existe
     if (!fs.existsSync(videoPath)) {
-      console.error(`Le fichier vidéo n'existe pas: ${videoPath}`);
-      return reject(new Error(`Le fichier vidéo n'existe pas: ${videoPath}`));
+      return reject(new Error(`La vidéo ${videoPath} n'existe pas`));
     }
 
-    // Obtenir la durée de la vidéo d'abord
+    // S'assurer que le dossier de sortie existe
+    if (!fs.existsSync(outputFolder)) {
+      fs.mkdirSync(outputFolder, { recursive: true });
+    } else {
+      // Nettoyer le dossier de sortie
+      fs.readdirSync(outputFolder).forEach((file) => {
+        if (file.endsWith(".png")) {
+          fs.unlinkSync(path.join(outputFolder, file));
+        }
+      });
+    }
+
+    // Obtenir la durée de la vidéo
     ffmpeg.ffprobe(videoPath, (err, metadata) => {
       if (err) {
-        console.error(
-          "Erreur lors de l'analyse de la vidéo avec ffprobe:",
-          err
-        );
-        console.log(
-          "Tentative d'extraction des frames sans analyse préalable..."
-        );
-
-        // Fallback: extraire une frame par seconde sans connaître la durée exacte
-        try {
-          ffmpeg(videoPath)
-            .on("start", (cmd) => console.log("Commande ffmpeg fallback:", cmd))
-            .on("end", () => {
-              console.log("Frames extraites avec succès (mode fallback)");
-              resolve();
-            })
-            .on("error", (extractErr) => {
-              console.error(
-                "Erreur lors de l'extraction fallback des frames:",
-                extractErr
-              );
-              reject(extractErr);
-            })
-            .outputOptions(["-vf fps=1"]) // Extraire une frame chaque seconde
-            .output(path.join("frames", "frame-%03d.png"))
-            .run();
-        } catch (fallbackErr) {
-          console.error(
-            "Erreur lors du fallback d'extraction des frames:",
-            fallbackErr
-          );
-          reject(fallbackErr);
-        }
-        return;
+        console.error("Erreur lors de l'analyse de la vidéo:", err);
+        return reject(err);
       }
 
-      try {
-        // Obtenir la durée en secondes
-        const durationSec = metadata.format.duration;
-        console.log(`Durée de la vidéo: ${durationSec} secondes`);
+      const duration = metadata.format.duration || 0;
+      console.log(`Durée de la vidéo: ${duration} secondes`);
 
-        if (!durationSec || durationSec <= 0) {
-          console.error(
-            "Durée de vidéo invalide, utilisation du mode fallback"
+      // Calculer l'intervalle entre les frames
+      const interval = Math.max(1, Math.floor(duration / maxFrames));
+      console.log(`Intervalle d'extraction: ${interval} secondes`);
+
+      // Utiliser -hwaccel auto pour activer l'accélération matérielle si disponible
+      ffmpeg(videoPath)
+        .inputOptions([
+          "-hwaccel",
+          "auto", // Utiliser l'accélération matérielle si disponible
+        ])
+        .outputOptions([
+          "-vf",
+          `fps=1/${interval}`, // Extraire une frame toutes les 'interval' secondes
+          "-q:v",
+          "2", // Qualité des images (2 = haute qualité, 31 = basse qualité)
+          "-preset",
+          "ultrafast", // Le preset le plus rapide
+        ])
+        .output(path.join(outputFolder, "frame-%03d.png"))
+        .on("start", (commandLine) => {
+          console.log("Commande ffmpeg:", commandLine);
+        })
+        .on("progress", (progress) => {
+          console.log(`Progression ffmpeg: ${JSON.stringify(progress)}`);
+        })
+        .on("end", () => {
+          const endTime = Date.now();
+          const elapsedTime = (endTime - startTime) / 1000;
+          console.log(
+            `Extraction des frames terminée en ${elapsedTime.toFixed(
+              2
+            )} secondes`
           );
 
-          // Utiliser le même fallback en cas de durée invalide
-          ffmpeg(videoPath)
-            .on("start", (cmd) => console.log("Commande ffmpeg fallback:", cmd))
-            .on("end", () => {
-              console.log("Frames extraites avec succès (mode fallback)");
-              resolve();
-            })
-            .on("error", (extractErr) => {
-              console.error(
-                "Erreur lors de l'extraction fallback des frames:",
-                extractErr
-              );
-              reject(extractErr);
-            })
-            .outputOptions(["-vf fps=1"]) // Extraire une frame chaque seconde
-            .output(path.join("frames", "frame-%03d.png"))
-            .run();
+          // Compter les frames extraites
+          const framesCount = fs
+            .readdirSync(outputFolder)
+            .filter((file) => file.endsWith(".png")).length;
+          console.log(`${framesCount} frames extraites`);
 
-          return;
-        }
-
-        // Configurer ffmpeg pour extraire une frame par seconde
-        ffmpeg(videoPath)
-          .on("start", (cmd) => console.log("Commande ffmpeg:", cmd))
-          .on("end", () => {
-            console.log(`Frames extraites avec succès (1 par seconde)`);
-            resolve();
-          })
-          .on("error", (err) => {
-            console.error("Erreur lors de l'extraction des frames:", err);
-            reject(err);
-          })
-          .outputOptions([
-            "-vf fps=1", // Extraire exactement 1 frame par seconde
-          ])
-          .output(path.join("frames", "frame-%03d.png"))
-          .run();
-      } catch (error) {
-        console.error("Erreur lors de la configuration de ffmpeg:", error);
-        reject(error);
-      }
+          resolve(framesCount);
+        })
+        .on("error", (err) => {
+          console.error("Erreur lors de l'extraction des frames:", err);
+          reject(err);
+        })
+        .run();
     });
   });
 }
@@ -600,8 +892,19 @@ app.use(
 );
 
 // Démarrer le serveur
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Serveur en écoute sur le port ${PORT}`);
+
+  // Démarrer le service EasyOCR au démarrage du serveur
+  try {
+    await startEasyOCRService();
+    console.log("Service EasyOCR prêt à l'emploi");
+  } catch (error) {
+    console.error("Erreur lors du démarrage du service EasyOCR:", error);
+    console.log(
+      "Le serveur continuera à fonctionner sans service EasyOCR préchargé"
+    );
+  }
 });
 
 // Fonction pour utiliser EasyOCR via un script Python externe
@@ -645,7 +948,11 @@ async function processImagesWithEasyOCR(language = "fra") {
     const condaEnv = "ezmeme"; // Utiliser l'environnement conda ezmeme
 
     // Définir les variables d'environnement pour aider Python à trouver les modules
-    const env = { ...process.env };
+    const env = {
+      ...process.env,
+      // Ajouter la variable d'environnement pour résoudre le problème OpenMP
+      KMP_DUPLICATE_LIB_OK: "TRUE",
+    };
 
     // Ajouter les variables d'environnement du fichier .env
     // Elles seront transmises au script Python
@@ -656,48 +963,48 @@ async function processImagesWithEasyOCR(language = "fra") {
     console.log("Debug mode:", process.env.DEBUG_MODE);
 
     // Options d'optimisation pour l'OCR
-    const scale = 40; // Redimensionnement à 40% - moins agressif
-    const maxImages = 60; // Traiter jusqu'à 60 images (1 minute de vidéo)
+    const scale = 30; // Redimensionnement à 30% pour un bon compromis vitesse/qualité
+    const maxImages = 30; // Limiter à 30 images pour un traitement plus rapide
     const fastMode = true; // Toujours utiliser le mode rapide
 
     // Détection automatique du meilleur mode (GPU/CPU)
     // Nous allons essayer d'utiliser le GPU s'il est disponible dans la configuration
-    const useGPU = process.env.EASYOCR_GPU_ENABLED === "True";
+    const useGPU = process.env.EASYOCR_GPU_ENABLED;
     const gpuFlag = useGPU.toString();
 
     console.log(
       `Options d'optimisation OCR: redimensionnement=${scale}%, max-images=${maxImages}, mode-rapide=${fastMode}, GPU=${gpuFlag}`
     );
 
-    console.log(
-      `Exécution avec Conda: ${condaPath} run -n ${condaEnv} python "${pythonScript}" "./frames" --lang ${language} --gpu ${gpuFlag}`
-    );
+    // Construire la commande conda d'une façon plus fiable
+    const condaCommand = [
+      "run",
+      "-n",
+      condaEnv,
+      "python",
+      pythonScript,
+      "./frames",
+      "--lang",
+      language,
+      "--gpu",
+      gpuFlag,
+      "--scale",
+      scale.toString(),
+      "--max-images",
+      maxImages.toString(),
+    ];
+
+    if (fastMode) {
+      condaCommand.push("--fast");
+    }
+
+    console.log(`Exécution avec Conda: ${condaPath} ${condaCommand.join(" ")}`);
 
     // Mesurer le temps de traitement pour la comparaison de performance
     const startTime = Date.now();
 
     // Utiliser spawn au lieu de exec
-    const pythonProcess = spawn(
-      condaPath,
-      [
-        "run",
-        "-n",
-        condaEnv,
-        "python",
-        pythonScript, // Pas besoin du flag -m, juste le chemin vers le script
-        "./frames",
-        "--lang",
-        language,
-        "--gpu",
-        gpuFlag,
-        "--scale",
-        scale.toString(),
-        "--max-images",
-        maxImages.toString(),
-        "--fast",
-      ],
-      { env }
-    );
+    const pythonProcess = spawn(condaPath, condaCommand, { env });
 
     let stdout = "";
     let stderr = "";
@@ -728,54 +1035,10 @@ async function processImagesWithEasyOCR(language = "fra") {
         );
         console.error("Sortie d'erreur:", stderr);
 
-        // Essayer l'option de secours: exécuter directement avec l'environnement conda activé manuellement
-        console.log(
-          "Tentative de secours avec activation manuelle de conda..."
+        // Retourner l'erreur sans tentative de secours
+        return reject(
+          new Error(`Échec d'exécution d'EasyOCR (code ${code}): ${stderr}`)
         );
-
-        // Créer un script batch temporaire pour activer conda et exécuter le script Python
-        const timestamp = Date.now();
-        const batchFile = path.join(
-          os.tmpdir(),
-          `easyocr_run_${timestamp}.bat`
-        );
-
-        try {
-          fs.writeFileSync(
-            batchFile,
-            `@echo off
-call conda activate ezmeme
-python "${pythonScript}" "./frames" --lang ${language} --gpu ${gpuFlag} --scale ${scale} --max-images ${maxImages} --fast
-```
-          );
-
-          // Exécuter le script batch
-          const batchProcess = spawn(batchFile, [], { shell: true });
-
-          batchProcess.stdout.on("data", (data) => {
-            console.log(`Sortie batch: ${data}`);
-          });
-
-          batchProcess.stderr.on("data", (data) => {
-            console.error(`Erreur batch: ${data}`);
-          });
-
-          batchProcess.on("close", (batchCode) => {
-            console.log(`Script batch terminé avec le code: ${batchCode}`);
-            if (batchCode !== 0) {
-              console.error(
-                "Erreur lors de l'exécution du script batch de secours"
-              );
-            }
-            // Supprimer le fichier batch après utilisation
-            fs.unlinkSync(batchFile);
-          });
-        } catch (err) {
-          console.error(
-            "Erreur lors de la création du script batch de secours:",
-            err
-          );
-        }
       } else {
         // Écrire les logs OCR avec des streams
         Promise.all([
@@ -1431,7 +1694,7 @@ app.post("/process-all", async (req, res) => {
         // pour accélérer le processus global
         console.log("Extraction des frames en parallèle...");
         const extractStartTime = Date.now();
-        await extractFrames(videoPath);
+        await extractFramesFromVideo(videoPath, "frames");
         const extractTime = ((Date.now() - extractStartTime) / 1000).toFixed(2);
         console.log(`Extraction des frames terminée en ${extractTime}s`);
       })();
@@ -1493,7 +1756,7 @@ app.post("/process-all", async (req, res) => {
         // Étape 3: Traitement OCR des frames
         console.log("3. Analyse OCR du texte dans la vidéo...");
         const ocrStartTime = Date.now();
-        await processImagesWithEasyOCR("fra");
+        await processFramesWithEasyOCRService(framesDir, "fra");
         const ocrTime = ((Date.now() - ocrStartTime) / 1000).toFixed(2);
         console.log(`Traitement OCR terminé en ${ocrTime}s`);
 
@@ -1612,7 +1875,7 @@ app.post("/direct-process-ocr", async (req, res) => {
     console.log("2. Extraction des frames de la vidéo...");
     console.log("Chemin de la vidéo pour extraction:", videoPath);
 
-    await extractFrames(videoPath);
+    await extractFramesFromVideo(videoPath, "frames");
 
     // Vérifier que les frames ont été créées
     const framesDir = "./frames";
@@ -1630,7 +1893,7 @@ app.post("/direct-process-ocr", async (req, res) => {
     let text = "";
 
     // Utiliser EasyOCR avec correction IA
-    await processImagesWithEasyOCR("fra");
+    await processFramesWithEasyOCRService(framesDir, "fra");
     console.log("Traitement EasyOCR terminé, vérification des résultats...");
 
     // Vérifier si le fichier de résultats JSON existe
@@ -1792,6 +2055,93 @@ app.post("/download-all", async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.message,
+    });
+  }
+});
+
+// Extraction des frames à partir d'une vidéo
+app.post("/api/extract-frames", upload.single("video"), async (req, res) => {
+  try {
+    console.log("Requête d'extraction de frames reçue");
+    // Vérifier si un fichier a été téléchargé
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: "Aucun fichier vidéo n'a été téléchargé",
+      });
+    }
+
+    const videoPath = req.file.path;
+    console.log("Vidéo reçue:", videoPath);
+
+    // Nettoyer les dossiers de travail avant extraction
+    cleanDirectories(["frames"]);
+
+    console.log("Extraction des frames en parallèle...");
+    const extractStartTime = Date.now();
+    const framesCount = await extractFramesFromVideo(videoPath, "frames");
+    const extractTime = ((Date.now() - extractStartTime) / 1000).toFixed(2);
+    console.log(`Extraction des frames terminée en ${extractTime}s`);
+
+    // Analyse des frames avec EasyOCR
+    console.log("Début de l'analyse OCR des frames...");
+    const ocrStartTime = Date.now();
+
+    try {
+      await processFramesWithEasyOCRService(
+        path.dirname(videoPath),
+        req.body.lang || "fra"
+      );
+      const ocrTime = ((Date.now() - ocrStartTime) / 1000).toFixed(2);
+      console.log(`Analyse OCR terminée en ${ocrTime}s`);
+
+      // Envoyer les résultats OCR au client
+      const ocrResultsPath = path.join(
+        path.dirname(videoPath),
+        "ocr",
+        "easyocr_results.json"
+      );
+
+      if (fs.existsSync(ocrResultsPath)) {
+        // Lire les résultats
+        const ocrResults = JSON.parse(fs.readFileSync(ocrResultsPath, "utf8"));
+
+        // Ajouter les métriques de performance
+        const totalTime = (Date.now() - extractStartTime) / 1000;
+        const metrics = {
+          extract_time: parseFloat(extractTime),
+          ocr_time: parseFloat(ocrTime),
+          total_time: totalTime.toFixed(2),
+          frames_count: framesCount,
+          significant_texts: ocrResults.filter((r) => r.is_significant).length,
+        };
+
+        return res.status(200).json({
+          success: true,
+          message: `${framesCount} frames extraites et analysées en ${totalTime.toFixed(
+            2
+          )}s`,
+          results: ocrResults,
+          metrics,
+        });
+      } else {
+        return res.status(404).json({
+          success: false,
+          error: "Résultats OCR non trouvés",
+        });
+      }
+    } catch (ocrError) {
+      console.error("Erreur lors de l'analyse OCR:", ocrError);
+      return res.status(500).json({
+        success: false,
+        error: `Erreur lors de l'analyse OCR: ${ocrError.message}`,
+      });
+    }
+  } catch (error) {
+    console.error("Erreur lors de l'extraction des frames:", error);
+    return res.status(500).json({
+      success: false,
+      error: `Erreur lors de l'extraction des frames: ${error.message}`,
     });
   }
 });

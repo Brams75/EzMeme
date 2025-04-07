@@ -472,89 +472,55 @@ dirs.forEach((dir) => {
   }
 });
 
-// Fonction pour nettoyer les dossiers spécifiques
-function cleanDirectories(dirsToClean = ["frames", "ocr"]) {
-  const cleanTimer = Timer.start(
-    `Nettoyage des dossiers ${dirsToClean.join(", ")}`
-  );
-  console.log(`Nettoyage des dossiers: ${dirsToClean.join(", ")}...`);
-  dirsToClean.forEach((dir) => {
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-      console.log(`Dossier ${dir} créé`);
-      return;
-    }
+// Fonction pour nettoyer un répertoire
+async function cleanDirectory(directory) {
+  console.log(`Nettoyage du dossier ${directory}...`);
+  let deleted = 0;
+  let errors = 0;
 
-    try {
-      const files = fs.readdirSync(dir);
-      let successCount = 0;
-      let errorCount = 0;
+  if (!fs.existsSync(directory)) {
+    fs.mkdirSync(directory, { recursive: true });
+    console.log(`Dossier ${directory} créé`);
+    return { deleted, errors };
+  }
 
-      for (const file of files) {
-        const filePath = path.join(dir, file);
-
-        // Fonction pour tenter la suppression avec retry
-        const attemptDelete = (retryCount = 0, maxRetries = 3) => {
-          try {
-            if (fs.existsSync(filePath)) {
-              const fileStats = fs.statSync(filePath);
-
-              // Vérifier si c'est un dossier
-              if (fileStats.isDirectory()) {
-                // Supprimer récursivement si c'est un dossier
-                fs.rmdirSync(filePath, { recursive: true, force: true });
-              } else {
-                // Supprimer si c'est un fichier
-                fs.unlinkSync(filePath);
-              }
-
-              successCount++;
-            }
-          } catch (e) {
-            // Si l'erreur indique que le fichier est utilisé par un autre processus
-            if (
-              e.code === "EBUSY" ||
-              e.code === "EPERM" ||
-              e.code === "EACCES"
-            ) {
-              if (retryCount < maxRetries) {
-                // Attendre un peu et réessayer
-                console.warn(
-                  `Fichier ${file} occupé, nouvelle tentative ${
-                    retryCount + 1
-                  }/${maxRetries}`
-                );
-                setTimeout(
-                  () => attemptDelete(retryCount + 1, maxRetries),
-                  500
-                );
-                return;
-              }
-            }
-
-            console.warn(
-              `Échec final de suppression du fichier ${file} dans ${dir}: ${e.message}`
-            );
-            errorCount++;
-          }
-        };
-
-        // Démarrer la première tentative
-        attemptDelete();
+  try {
+    const files = fs.readdirSync(directory);
+    for (const file of files) {
+      const filePath = path.join(directory, file);
+      try {
+        fs.unlinkSync(filePath);
+        deleted++;
+      } catch (err) {
+        console.error(`Erreur lors de la suppression de ${filePath}:`, err);
+        errors++;
       }
-
-      console.log(
-        `Dossier ${dir} nettoyé: ${successCount} fichiers supprimés, ${errorCount} erreurs`
-      );
-    } catch (e) {
-      console.error(`Erreur lors du nettoyage du dossier ${dir}: ${e.message}`);
     }
-  });
-
-  const cleanDuration = Timer.end(cleanTimer);
-  console.log(`Nettoyage terminé en ${cleanDuration.toFixed(2)}s`);
-  return cleanDuration;
+    console.log(
+      `Nettoyage terminé pour ${directory}: ${deleted} fichiers supprimés, ${errors} erreurs`
+    );
+    return { deleted, errors };
+  } catch (err) {
+    console.error(`Erreur lors du nettoyage de ${directory}:`, err);
+    return { deleted, errors: errors + 1 };
+  }
 }
+
+async function cleanDirectories(directories) {
+  console.log("Nettoyage des dossiers:", directories);
+  const results = [];
+  for (const directory of directories) {
+    const result = await cleanDirectory(directory);
+    results.push({ directory, ...result });
+  }
+  return results;
+}
+
+// Nettoyer les répertoires au démarrage
+console.log("Nettoyage des répertoires au démarrage...");
+dirs.forEach((dir) => {
+  cleanDirectory(dir);
+});
 
 // Fonction pour nettoyer les fichiers anciens dans le dossier downloads
 function cleanDownloadsDirectory(maxAgeHours = 24) {
@@ -2034,317 +2000,65 @@ async function directDownloadVideo(url) {
 
 // Nouvel endpoint pour traiter toutes les actions en une seule requête
 app.post("/process-all", async (req, res) => {
+  const { url, skipOcr = false } = req.body;
+
+  if (!url) {
+    return res.status(400).json({ success: false, error: "URL manquante" });
+  }
+
+  console.log("Requête process-all reçue:", { url, skipOcr });
+  console.log("Traitement complet pour:", url);
+
   try {
-    console.log("Requête process-all reçue:", req.body);
-    const { url } = req.body;
+    // Nettoyer les dossiers frames et ocr
+    console.log("Nettoyage des dossiers: frames, ocr...");
+    const framesCleaned = await cleanDirectory("frames");
+    const ocrCleaned = await cleanDirectory("ocr");
+    console.log(
+      `Dossier frames nettoyé: ${framesCleaned.deleted} fichiers supprimés, ${framesCleaned.errors} erreurs`
+    );
+    console.log(
+      `Dossier ocr nettoyé: ${ocrCleaned.deleted} fichiers supprimés, ${ocrCleaned.errors} erreurs`
+    );
 
-    if (!url || !url.includes("instagram.com")) {
-      return res.status(400).json({
-        success: false,
-        error: "URL Instagram valide requise",
-      });
-    }
+    // Extraire les métadonnées
+    console.log("Extraction des métadonnées...");
+    const metadata = await scrapeInstagram(url);
 
-    const totalTimer = Timer.start("Traitement complet process-all");
-    console.log("Traitement complet pour:", url);
-
-    // Nettoyer uniquement les dossiers frames et ocr, pas downloads
-    cleanDirectories(["frames", "ocr"]);
-
-    // Créer un objet pour stocker tous les résultats
-    const results = {
-      success: true,
-      videoUrl: null,
-      audioUrl: null,
-      description: "",
-      hashtags: [],
-      text: "",
-      correctedTexts: [],
-      timings: {},
-    };
-
-    try {
-      // Étape 1: Démarrer les téléchargements des médias en premier (prioritaire)
-      console.log("1. Téléchargement et préparation des médias...");
+    // Si on ne skip pas l'OCR, extraire le texte
+    let ocrResults = { text: "", correctedTexts: [] };
+    if (!skipOcr) {
+      console.log("Extraction des frames et analyse OCR...");
+      // Vérifier si la vidéo existe déjà
       const videoPath = path.join("downloads", "reel_complete.mp4");
-      const audioPath = path.join("downloads", "reel_audio.mp3");
-      let mediasExist = false;
-
-      // Vérification de l'existence des fichiers
-      const fileExists = (filePath) => {
-        try {
-          return fs.existsSync(filePath) && fs.statSync(filePath).size > 0;
-        } catch (e) {
-          return false;
-        }
-      };
-      // Vérifier si les médias existent déjà
-      if (fileExists(videoPath) && fileExists(audioPath)) {
-        console.log("Vidéo et audio déjà disponibles, réutilisation...");
-        mediasExist = true;
-      } else {
-        console.log("Téléchargement des médias requis...");
+      if (!fs.existsSync(videoPath)) {
+        console.log("Téléchargement de la vidéo pour l'OCR...");
+        await directDownloadVideo(url);
       }
 
-      // Si les médias n'existent pas, générer des URLs temporaires de retour rapide
-      if (!mediasExist) {
-        // Renvoyer une première réponse rapide avec le statut en cours
-        // Pas besoin d'attendre que tout soit prêt pour commencer à montrer des résultats
-        res.writeHead(200, {
-          "Content-Type": "application/json",
-          "X-Processing-Status": "downloading",
-        });
-        res.write(
-          JSON.stringify({
-            success: true,
-            videoUrl: `/download/video/reel_complete.mp4`,
-            audioUrl: `/download/audio/reel_audio.mp3`,
-            processing: true,
-            message: "Téléchargement en cours, veuillez patienter...",
-          })
-        );
+      // Extraire les frames
+      const frames = await extractFramesFromVideo(videoPath, "frames", 40);
 
-        // Ne pas terminer la réponse, on va envoyer des mises à jour en temps réel
-        // en utilisant les chunks
+      // Effectuer l'OCR
+      if (frames.success) {
+        console.log("Analyse OCR du texte dans la vidéo...");
+        ocrResults = await processFramesWithEasyOCRService("frames");
       }
-
-      // Lancer un tableau de promesses pour exécuter certaines tâches en parallèle
-      const promises = [];
-
-      // Promesse 1: Téléchargement de la vidéo (prioritaire) et préparation des frames
-      const downloadAndPreparePromise = (async () => {
-        // Vérifier si les fichiers existent déjà
-        if (mediasExist) {
-          console.log("Utilisation des fichiers existants");
-        } else {
-          console.log("Téléchargement de la vidéo et de l'audio...");
-          const downloadStartTime = Date.now();
-          const downloadTimer = Timer.start("Téléchargement vidéo et audio");
-          const videoResult = await directDownloadVideo(url);
-          const downloadDuration = Timer.end(downloadTimer);
-          results.timings.download = downloadDuration;
-          console.log(
-            `Téléchargement terminé en ${downloadDuration.toFixed(2)}s`
-          );
-
-          if (!videoResult.success) {
-            throw new Error("Échec du téléchargement de la vidéo");
-          }
-          mediasExist = true;
-        }
-
-        if (!mediasExist || !fileExists(videoPath)) {
-          throw new Error("La vidéo n'a pas pu être trouvée ou téléchargée");
-        }
-
-        // Créer les URLs pour les fichiers
-        results.videoUrl = `/download/video/reel_complete.mp4`;
-        results.audioUrl = `/download/audio/reel_audio.mp3`;
-        console.log("Liens générés:", {
-          videoUrl: results.videoUrl,
-          audioUrl: results.audioUrl,
-        });
-
-        // Démarrer l'extraction des frames immédiatement après le téléchargement
-        console.log("Extraction des frames en parallèle...");
-        const extractionTimer = Timer.start("Extraction des frames");
-
-        // Utiliser la stratégie d'échantillonnage adaptative pour les mèmes
-        const framesResult = await extractFramesFromVideo(videoPath, "frames");
-
-        const extractionDuration = Timer.end(extractionTimer);
-        results.timings.extraction = extractionDuration;
-        console.log(
-          `Extraction des frames terminée en ${extractionDuration.toFixed(
-            2
-          )}s avec ${framesResult.totalFrames} frames`
-        );
-
-        // Ajouter des informations sur la stratégie d'échantillonnage aux résultats
-        if (framesResult.strategy) {
-          results.frameStrategy = framesResult.strategy;
-          console.log(
-            `Stratégie d'échantillonnage: intervalle=${framesResult.strategy.interval.toFixed(
-              1
-            )}s, frames cible=${framesResult.strategy.framesTarget}`
-          );
-        }
-      })();
-
-      // Ajouter la promesse de téléchargement au tableau
-      promises.push(downloadAndPreparePromise);
-
-      // Promesse 2: Extraction des métadonnées (peut se faire en parallèle)
-      const metadataPromise = (async () => {
-        const metadataTimer = Timer.start("Extraction des métadonnées");
-        console.log("Extraction des métadonnées en parallèle...");
-        try {
-          // Faire plusieurs tentatives si nécessaire pour l'extraction des métadonnées
-          let metadataResult = null;
-          let attempts = 0;
-          const maxAttempts = 2;
-
-          while (
-            attempts < maxAttempts &&
-            (!metadataResult || metadataResult.hashtags.length === 0)
-          ) {
-            attempts++;
-            console.log(
-              `Tentative d'extraction des métadonnées ${attempts}/${maxAttempts}...`
-            );
-            metadataResult = await scrapeInstagram(url);
-
-            // Si nous avons au moins un hashtag, on considère que c'est un succès
-            if (
-              metadataResult &&
-              metadataResult.hashtags &&
-              metadataResult.hashtags.length > 0
-            ) {
-              console.log(
-                `Extraction réussie avec ${metadataResult.hashtags.length} hashtags`
-              );
-              break;
-            } else {
-              console.log("Aucun hashtag trouvé, nouvelle tentative...");
-              // Attendre un peu avant de réessayer
-              await new Promise((resolve) => setTimeout(resolve, 1000));
-            }
-          }
-
-          const metadataDuration = Timer.end(metadataTimer);
-          results.timings.metadata = metadataDuration;
-          console.log(
-            `Métadonnées extraites en ${metadataDuration.toFixed(2)}s`
-          );
-
-          if (metadataResult) {
-            // Assurer que nous avons des valeurs valides
-            results.description = metadataResult.description || "";
-            results.hashtags = metadataResult.hashtags || [];
-
-            // Log pour vérifier ce qui a été extrait
-            console.log("Métadonnées extraites:", {
-              description:
-                results.description.substring(0, 50) +
-                (results.description.length > 50 ? "..." : ""),
-              hashtags: results.hashtags,
-              tentatives: attempts,
-            });
-          } else {
-            console.warn(
-              "Aucune métadonnée n'a pu être extraite après plusieurs tentatives"
-            );
-          }
-        } catch (error) {
-          Timer.end(metadataTimer);
-          console.error("Erreur lors de l'extraction des métadonnées:", error);
-          // Ne pas lancer d'erreur pour ne pas interrompre le processus principal
-        }
-      })();
-
-      // Ajouter la promesse d'extraction des métadonnées au tableau
-      promises.push(metadataPromise);
-
-      // Attendre que le téléchargement, l'extraction des frames et des métadonnées soient terminés
-      await Promise.all(promises);
-
-      // Vérifier que les frames ont été extraites
-      const framesDir = "./frames";
-      if (!fs.existsSync(framesDir)) {
-        fs.mkdirSync(framesDir, { recursive: true });
-      }
-
-      const frames = fs
-        .readdirSync(framesDir)
-        .filter(
-          (file) =>
-            file.toLowerCase().endsWith(".png") ||
-            file.toLowerCase().endsWith(".jpg")
-        );
-
-      console.log(`${frames.length} frames extraites pour l'OCR`);
-
-      if (frames.length > 0) {
-        // Étape 3: Traitement OCR des frames
-        console.log("3. Analyse OCR du texte dans la vidéo...");
-        const ocrStartTime = Date.now();
-        const ocrTimer = Timer.start("Traitement OCR");
-        await processFramesWithEasyOCRService(framesDir, "fra");
-        const ocrDuration = Timer.end(ocrTimer);
-        results.timings.ocr = ocrDuration;
-        console.log(`Traitement OCR terminé en ${ocrDuration.toFixed(2)}s`);
-
-        // Vérifier les résultats OCR
-        const resultsPath = path.join("ocr", "easyocr_results.json");
-        if (fs.existsSync(resultsPath)) {
-          const jsonResults = JSON.parse(fs.readFileSync(resultsPath, "utf8"));
-          console.log(
-            `${jsonResults.length} blocs de texte détectés dans les frames`
-          );
-
-          // Filtrer et transformer les résultats
-          const significantResults = jsonResults
-            .filter((r) => r.is_significant !== false)
-            .map((r) => ({
-              frame: r.image,
-              text: r.text,
-              textType: r.text_type || "raw",
-              confidence: r.confidence || 0,
-            }));
-
-          // Si nous avons des résultats corrigés, les utiliser
-          if (
-            significantResults.some(
-              (r) => r.textType && r.textType === "corrected"
-            )
-          ) {
-            results.correctedTexts = significantResults.filter(
-              (r) => r.textType === "corrected"
-            );
-            console.log(
-              `${results.correctedTexts.length} textes corrigés par l'IA trouvés`
-            );
-          } else {
-            // Sinon, utiliser tous les résultats significatifs
-            results.text = significantResults
-              .map((r) => r.text)
-              .filter((t) => t && t.trim())
-              .join("\n\n");
-            console.log(
-              `Texte brut compilé (${results.text.length} caractères)`
-            );
-          }
-        } else {
-          console.warn("Aucun résultat OCR n'a été généré");
-        }
-      } else {
-        console.warn("Aucune frame extraite pour l'OCR");
-      }
-
-      // Calculer le temps total de traitement
-      const totalDuration = Timer.end(totalTimer);
-      results.timings = {
-        total: totalDuration,
-      };
-
-      // Renvoyer tous les résultats collectés
-      console.log(
-        `Traitement complet terminé en ${totalDuration.toFixed(
-          2
-        )}s, envoi des résultats...`
-      );
-      return res.json(results);
-    } catch (processingError) {
-      Timer.end(totalTimer);
-      console.error("Erreur pendant le traitement:", processingError);
-      throw processingError;
+    } else {
+      console.log("OCR ignoré selon la demande");
     }
-  } catch (error) {
-    console.error("Erreur globale dans process-all:", error);
-    return res.status(500).json({
-      success: false,
-      error: error.message || "Une erreur est survenue lors du traitement",
+
+    // Envoyer les résultats
+    res.json({
+      success: true,
+      description: metadata.description || "",
+      hashtags: metadata.hashtags || [],
+      text: ocrResults.text || "",
+      correctedTexts: ocrResults.correctedTexts || [],
     });
+  } catch (error) {
+    console.error("Erreur lors du traitement complet:", error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -2558,7 +2272,7 @@ app.post("/direct-extract-metadata", async (req, res) => {
 app.post("/download-all", async (req, res) => {
   try {
     console.log("Requête de téléchargement complet reçue:", req.body);
-    const { url } = req.body;
+    const { url, preferences } = req.body;
 
     if (!url || !url.includes("instagram.com")) {
       return res.status(400).json({
@@ -2566,6 +2280,18 @@ app.post("/download-all", async (req, res) => {
         error: "URL Instagram valide requise",
       });
     }
+
+    // Préférences par défaut si non fournies
+    const defaultPreferences = {
+      video: true,
+      audio: true,
+      description: true,
+      hashtags: true,
+      text: true,
+    };
+
+    // Fusionner les préférences fournies avec les préférences par défaut
+    const finalPreferences = { ...defaultPreferences, ...preferences };
 
     // Vérifier si les fichiers existent déjà
     const videoPath = path.join(__dirname, "downloads", "reel_complete.mp4");
@@ -2580,45 +2306,68 @@ app.post("/download-all", async (req, res) => {
       }
     };
 
-    // Si les deux fichiers existent déjà, on peut éviter le téléchargement
-    if (fileExists(videoPath) && fileExists(audioPath)) {
-      console.log("Vidéo et audio déjà disponibles, réutilisation...");
+    // Si les fichiers existent déjà et que les préférences correspondent, on peut les réutiliser
+    const videoExists = fileExists(videoPath);
+    const audioExists = fileExists(audioPath);
+
+    // Si les fichiers existent déjà et que les préférences correspondent, on peut les réutiliser
+    if (
+      (!finalPreferences.video || videoExists) &&
+      (!finalPreferences.audio || audioExists)
+    ) {
+      console.log("Fichiers déjà disponibles, réutilisation...");
 
       return res.json({
         success: true,
-        videoUrl: `/download/video/reel_complete.mp4`,
-        audioUrl: `/download/audio/reel_audio.mp3`,
+        videoUrl: finalPreferences.video
+          ? `/download/video/reel_complete.mp4`
+          : null,
+        audioUrl: finalPreferences.audio
+          ? `/download/audio/reel_audio.mp3`
+          : null,
         reused: true,
       });
     }
 
-    // Télécharger la vidéo et l'audio
-    console.log("Démarrage du téléchargement complet pour:", url);
-    const result = await directDownloadVideo(url);
+    // Télécharger la vidéo et l'audio si nécessaire
+    if (finalPreferences.video || finalPreferences.audio) {
+      console.log("Démarrage du téléchargement pour:", url);
+      const result = await directDownloadVideo(url);
 
-    if (!result.success) {
-      throw new Error(result.error || "Échec du téléchargement");
-    }
-
-    // Vérifier que les fichiers existent bien
-    if (!fs.existsSync(videoPath)) {
-      throw new Error("Le fichier vidéo n'a pas été créé");
-    }
-
-    const audioExists = fs.existsSync(audioPath);
-    if (!audioExists) {
-      console.warn("Le fichier audio MP3 n'existe pas, tentative avec MP4");
-      const audioPathMP4 = path.join(__dirname, "downloads", "reel_audio.mp4");
-      if (!fs.existsSync(audioPathMP4)) {
-        console.error("Aucun fichier audio trouvé (ni MP3 ni MP4)");
+      if (!result.success) {
+        throw new Error(result.error || "Échec du téléchargement");
       }
     }
 
-    // Renvoyer les URLs pour les fichiers individuels
+    // Vérifier que les fichiers existent bien selon les préférences
+    if (finalPreferences.video && !fs.existsSync(videoPath)) {
+      throw new Error("Le fichier vidéo n'a pas été créé");
+    }
+
+    if (finalPreferences.audio) {
+      const audioExists = fs.existsSync(audioPath);
+      if (!audioExists) {
+        console.warn("Le fichier audio MP3 n'existe pas, tentative avec MP4");
+        const audioPathMP4 = path.join(
+          __dirname,
+          "downloads",
+          "reel_audio.mp4"
+        );
+        if (!fs.existsSync(audioPathMP4)) {
+          console.error("Aucun fichier audio trouvé (ni MP3 ni MP4)");
+        }
+      }
+    }
+
+    // Renvoyer les URLs pour les fichiers selon les préférences
     res.json({
       success: true,
-      videoUrl: `/download/video/reel_complete.mp4`,
-      audioUrl: `/download/audio/reel_audio.mp3`,
+      videoUrl: finalPreferences.video
+        ? `/download/video/reel_complete.mp4`
+        : null,
+      audioUrl: finalPreferences.audio
+        ? `/download/audio/reel_audio.mp3`
+        : null,
     });
   } catch (error) {
     console.error("Erreur lors du téléchargement complet:", error);

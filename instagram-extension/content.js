@@ -509,6 +509,65 @@ function createDownloadButton() {
       align-items: center;
       z-index: 10000;
     }
+
+    .option-group {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 16px;
+      padding: 12px;
+      background-color: var(--bg-secondary);
+      border-radius: 12px;
+      border: 1px solid var(--border-color);
+    }
+
+    .option-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      user-select: none;
+      padding: 4px;
+      border-radius: 6px;
+      transition: background-color 0.2s;
+    }
+
+    .option-label:hover {
+      background-color: rgba(59, 130, 246, 0.05);
+    }
+
+    .option-checkbox {
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      border: 2px solid var(--border-color);
+      cursor: pointer;
+      position: relative;
+      transition: all 0.2s;
+    }
+
+    .option-checkbox:checked {
+      background-color: var(--primary-color);
+      border-color: var(--primary-color);
+    }
+
+    .option-checkbox:checked::after {
+      content: '';
+      position: absolute;
+      left: 4px;
+      top: 1px;
+      width: 4px;
+      height: 8px;
+      border: solid white;
+      border-width: 0 2px 2px 0;
+      transform: rotate(45deg);
+    }
+
+    .option-text {
+      font-size: 14px;
+      color: var(--text-primary);
+      font-weight: 500;
+    }
   `;
   document.head.appendChild(styleElement);
 
@@ -533,29 +592,33 @@ function createDownloadButton() {
       </div>
     </div>
     <div class="menu-content">
+      <div class="download-options">
+        <div class="option-group">
+          <label class="option-label">
+            <input type="checkbox" class="option-checkbox" data-option="video" checked>
+            <span class="option-text">Vidéo</span>
+          </label>
+          <label class="option-label">
+            <input type="checkbox" class="option-checkbox" data-option="audio" checked>
+            <span class="option-text">Audio</span>
+          </label>
+          <label class="option-label">
+            <input type="checkbox" class="option-checkbox" data-option="description" checked>
+            <span class="option-text">Description</span>
+          </label>
+          <label class="option-label">
+            <input type="checkbox" class="option-checkbox" data-option="hashtags" checked>
+            <span class="option-text">Hashtags</span>
+          </label>
+          <label class="option-label">
+            <input type="checkbox" class="option-checkbox" data-option="text" checked>
+            <span class="option-text">Texte</span>
+          </label>
+        </div>
+      </div>
       <div class="download-all-container">
         <button class="download-button download-all-button">
-          Tout Télécharger
-        </button>
-      </div>
-      <div class="download-options">
-        <button class="download-button video-button">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line><line x1="2" y1="7" x2="7" y2="7"></line><line x1="2" y1="17" x2="7" y2="17"></line><line x1="17" y1="17" x2="22" y2="17"></line><line x1="17" y1="7" x2="22" y2="7"></line></svg>
-          Télécharger Vidéo
-        </button>
-        <button class="download-button audio-button">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
-          Télécharger Audio
-        </button>
-      </div>
-      <div class="extract-options">
-        <button class="download-button metadata-button">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="21" y1="10" x2="3" y2="10"></line><line x1="21" y1="6" x2="3" y2="6"></line><line x1="21" y1="14" x2="3" y2="14"></line><line x1="21" y1="18" x2="3" y2="18"></line></svg>
-          Extraire Description et Hashtags
-        </button>
-        <button class="download-button ocr-button">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-          Détecter le Texte
+          Télécharger la sélection
         </button>
       </div>
       <div class="status-container">
@@ -782,36 +845,38 @@ if (window.location.href.match(/instagram\.com\/(p|reel|tv)\/[^\/]+/)) {
 
 // Fonction pour configurer les gestionnaires d'événements sur les boutons
 function setupDownloadButtons() {
-  const videoButton = downloadMenu.querySelector(".video-button");
-  const audioButton = downloadMenu.querySelector(".audio-button");
-  const metadataButton = downloadMenu.querySelector(".metadata-button");
-  const ocrButton = downloadMenu.querySelector(".ocr-button");
   const downloadAllButton = downloadMenu.querySelector(".download-all-button");
   const statusMessage = downloadMenu.querySelector(".status-message");
   const progressFill = downloadMenu.querySelector(".progress-fill");
 
-  // Mise à jour de la barre de statut
+  // Ajouter les écouteurs pour les checkboxes
+  const checkboxes = downloadMenu.querySelectorAll(".option-checkbox");
+  checkboxes.forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      savePreferences();
+    });
+  });
+
+  // Charger les préférences au démarrage
+  loadPreferences();
+
+  // Fonction pour mettre à jour le statut
   function updateStatus(message, progress) {
     if (!statusMessage || !progressFill) return;
 
-    // Utiliser requestAnimationFrame pour s'assurer que les mises à jour d'interface sont priorisées
     requestAnimationFrame(() => {
       statusMessage.textContent = message;
-
-      // Transition fluide pour la barre de progression
       progressFill.style.transition = "width 0.3s ease-in-out";
       progressFill.style.width = `${progress}%`;
 
-      // Couleur basée sur le statut
       if (progress === 0) {
-        progressFill.style.backgroundColor = "#fc3d39"; // Rouge pour erreur
+        progressFill.style.backgroundColor = "#fc3d39";
       } else if (progress === 100) {
-        progressFill.style.backgroundColor = "#4bb543"; // Vert pour succès
+        progressFill.style.backgroundColor = "#4bb543";
       } else {
-        progressFill.style.backgroundColor = "#3b82f6"; // Bleu pour en cours
+        progressFill.style.backgroundColor = "#3b82f6";
       }
 
-      // Forcer un reflow pour s'assurer que les changements sont appliqués
       progressFill.offsetHeight;
     });
   }
@@ -821,840 +886,71 @@ function setupDownloadButtons() {
     const buttons = downloadMenu.querySelectorAll(".download-button");
     buttons.forEach((button) => {
       button.disabled = disable;
-      if (disable) {
-        button.style.opacity = "0.6";
-        button.style.cursor = "not-allowed";
-      } else {
-        button.style.opacity = "1";
-        button.style.cursor = "pointer";
-      }
+      button.style.opacity = disable ? "0.6" : "1";
+      button.style.cursor = disable ? "not-allowed" : "pointer";
     });
   }
 
-  // Fonction utilitaire pour télécharger un fichier sans ouvrir un nouvel onglet
-  function downloadFileWithoutNewTab(url, filename) {
-    console.log(`Téléchargement de fichier: ${filename} depuis ${url}`);
-
-    // On utilise une promesse pour pouvoir ajouter des délais entre les téléchargements
-    return new Promise((resolve, reject) => {
-      // Solution 1: Utiliser l'API Fetch puis créer un objet URL
-      fetch(url)
-        .then((response) => {
-          if (!response.ok) {
-            throw new Error(`Erreur HTTP: ${response.status}`);
-          }
-          return response.blob();
-        })
-        .then((blob) => {
-          console.log(`Blob récupéré pour ${filename}:`, blob);
-
-          // Créer un objet URL à partir du blob
-          const blobUrl = URL.createObjectURL(blob);
-
-          // Créer un élément a pour télécharger
-          const a = document.createElement("a");
-          a.style.display = "none";
-          a.href = blobUrl;
-          a.download = filename;
-          document.body.appendChild(a);
-
-          // Déclencher le téléchargement
-          console.log(`Déclenchement du téléchargement pour ${filename}`);
-          a.click();
-
-          // Nettoyer
-          setTimeout(() => {
-            document.body.removeChild(a);
-            URL.revokeObjectURL(blobUrl);
-            console.log(`Nettoyage effectué pour ${filename}`);
-            resolve(); // Résoudre la promesse une fois le téléchargement terminé
-          }, 1000);
-        })
-        .catch((error) => {
-          console.error(`Erreur lors du téléchargement de ${filename}:`, error);
-
-          // Solution de secours: redirection directe
-          try {
-            console.log(`Tentative avec redirection directe pour ${filename}`);
-            const link = document.createElement("a");
-            link.href = url;
-            link.setAttribute("download", filename);
-            link.setAttribute("target", "_blank");
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            resolve(); // Résoudre quand même pour continuer
-          } catch (fallbackError) {
-            console.error("Erreur avec la méthode de secours:", fallbackError);
-            reject(error);
-          }
-        });
-    });
-  }
-
-  // Télécharger la vidéo
-  videoButton.addEventListener("click", async () => {
-    disableButtons(true);
-    updateStatus("Étape 1/3 : Préparation de votre vidéo...", 10);
-
-    try {
-      // Petite pause pour permettre à l'UI de se mettre à jour
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      console.log("Envoi de la requête de téléchargement vidéo au serveur...");
-
-      updateStatus("Étape 2/3 : Récupération de la vidéo...", 30);
-
-      // Simuler des progrès pendant le téléchargement
-      const progressInterval = setInterval(() => {
-        const currentWidth = parseInt(progressFill.style.width);
-        if (currentWidth < 65) {
-          updateStatus(
-            "Étape 2/3 : Récupération de la vidéo...",
-            currentWidth + 1
-          );
-        }
-      }, 200);
-
-      const response = await fetch(
-        "http://localhost:3000/direct-download-video",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: window.location.href }),
-        }
-      );
-
-      clearInterval(progressInterval);
-
-      if (!response.ok) {
-        throw new Error("Erreur lors du téléchargement de la vidéo");
-      }
-
-      updateStatus("Étape 3/3 : Enregistrement de la vidéo...", 70);
-
-      const data = await response.json();
-      console.log("Réponse du serveur pour la vidéo:", data);
-
-      if (data && data.success) {
-        updateStatus("Préparation du téléchargement...", 85);
-
-        // Télécharger le fichier sans ouvrir un nouvel onglet
-        await downloadFileWithoutNewTab(
-          `http://localhost:3000${data.videoUrl}`,
-          "video.mp4"
-        );
-        updateStatus("Vidéo enregistrée sur votre appareil!", 100);
-      } else {
-        updateStatus(
-          "Impossible de récupérer la vidéo. Vérifiez que le post Instagram est public.",
-          0
-        );
-      }
-    } catch (error) {
-      console.error("Erreur:", error);
-      updateStatus(
-        "Impossible de récupérer la vidéo. Vérifiez que le post Instagram est public.",
-        0
-      );
-    } finally {
-      setTimeout(() => {
-        disableButtons(false);
-      }, 3000);
-    }
-  });
-
-  // Télécharger l'audio
-  audioButton.addEventListener("click", async () => {
-    disableButtons(true);
-    updateStatus("Étape 1/3 : Préparation de l'audio...", 10);
-
-    try {
-      // Petite pause pour permettre à l'UI de se mettre à jour
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      console.log("Envoi de la requête de téléchargement audio au serveur...");
-
-      updateStatus("Étape 2/3 : Extraction du son de la vidéo...", 30);
-
-      // Simuler des progrès pendant le téléchargement
-      const progressInterval = setInterval(() => {
-        const currentWidth = parseInt(progressFill.style.width);
-        if (currentWidth < 65) {
-          updateStatus(
-            "Étape 2/3 : Extraction du son de la vidéo...",
-            currentWidth + 1
-          );
-        }
-      }, 200);
-
-      const response = await fetch(
-        "http://localhost:3000/direct-download-audio",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: window.location.href }),
-        }
-      );
-
-      clearInterval(progressInterval);
-
-      if (!response.ok) {
-        throw new Error("Erreur lors du téléchargement de l'audio");
-      }
-
-      updateStatus("Étape 3/3 : Enregistrement du son...", 70);
-
-      const data = await response.json();
-      console.log("Réponse du serveur pour l'audio:", data);
-
-      if (data && data.success) {
-        updateStatus("Préparation du téléchargement...", 85);
-
-        // Déterminer l'extension de fichier en fonction de l'URL
-        const fileExtension = data.audioUrl.toLowerCase().endsWith(".mp3")
-          ? "mp3"
-          : "mp4";
-        console.log(`Extension de fichier audio détectée: ${fileExtension}`);
-
-        // Télécharger le fichier sans ouvrir un nouvel onglet
-        await downloadFileWithoutNewTab(
-          `http://localhost:3000${data.audioUrl}`,
-          `audio.${fileExtension}`
-        );
-        updateStatus("Son enregistré sur votre appareil!", 100);
-      } else {
-        updateStatus(
-          "Impossible de récupérer le son. Vérifiez que le post Instagram est public.",
-          0
-        );
-      }
-    } catch (error) {
-      console.error("Erreur:", error);
-      updateStatus(
-        "Impossible de récupérer le son. Vérifiez que le post Instagram est public.",
-        0
-      );
-    } finally {
-      setTimeout(() => {
-        disableButtons(false);
-      }, 3000);
-    }
-  });
-
-  // Extraire les métadonnées
-  metadataButton.addEventListener("click", async () => {
-    disableButtons(true);
-    updateStatus("Étape 1/3 : Vérification d'une analyse précédente...", 10);
-
-    try {
-      // Petite pause pour permettre à l'UI de se mettre à jour
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      // Vérifier d'abord le cache
-      const cacheKey = generateCacheKey(window.location.href, "metadata");
-      const cachedData = getFromCache(cacheKey);
-
-      if (cachedData) {
-        console.log(
-          "Données de métadonnées trouvées dans le cache:",
-          cachedData
-        );
-        updateStatus("Description et hashtags trouvés!", 100);
-        showContentModal({
-          title: "Description et Hashtags",
-          sections: [
-            {
-              title: "Description et Hashtags",
-              content: `${
-                cachedData.description || "Aucune description disponible"
-              }${
-                cachedData.hashtags?.length > 0
-                  ? "\n\n" + cachedData.hashtags.join(" ")
-                  : ""
-              }`,
-            },
-          ],
-        });
-
-        setTimeout(() => {
-          disableButtons(false);
-        }, 1000);
-
-        return;
-      }
-
-      updateStatus("Étape 2/3 : Lecture du contenu Instagram...", 30);
-      console.log(
-        "Envoi de la requête d'extraction des métadonnées au serveur..."
-      );
-
-      // Simuler des progrès pendant l'extraction
-      const progressInterval = setInterval(() => {
-        const currentWidth = parseInt(progressFill.style.width);
-        if (currentWidth < 65) {
-          updateStatus(
-            "Étape 2/3 : Lecture du contenu Instagram...",
-            currentWidth + 1
-          );
-        }
-      }, 200);
-
-      const response = await fetch(
-        "http://localhost:3000/direct-extract-metadata",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: window.location.href }),
-        }
-      );
-
-      clearInterval(progressInterval);
-
-      if (!response.ok) {
-        throw new Error("Erreur lors de l'extraction des métadonnées");
-      }
-
-      updateStatus("Étape 3/3 : Récupération de la description...", 70);
-      const data = await response.json();
-      console.log("Réponse du serveur pour les métadonnées:", data);
-
-      updateStatus("Analyse des hashtags...", 85);
-
-      if (data && data.success) {
-        // Sauvegarder dans le cache
-        saveToCache(cacheKey, {
-          description: data.description || "",
-          hashtags: data.hashtags || [],
-        });
-
-        updateStatus("Description et hashtags récupérés!", 100);
-        showContentModal({
-          title: "Description et Hashtags",
-          sections: [
-            {
-              title: "Description et Hashtags",
-              content: `${data.description || "Aucune description disponible"}${
-                data.hashtags?.length > 0
-                  ? "\n\n" + data.hashtags.join(" ")
-                  : ""
-              }`,
-            },
-          ],
-        });
-      } else {
-        updateStatus(
-          "Impossible de récupérer la description. Vérifiez que le post Instagram est public.",
-          0
-        );
-      }
-    } catch (error) {
-      console.error("Erreur:", error);
-      updateStatus(
-        "Impossible de récupérer la description. Vérifiez que le post Instagram est public.",
-        0
-      );
-    } finally {
-      setTimeout(() => {
-        disableButtons(false);
-      }, 3000);
-    }
-  });
-
-  // Extraire le texte de la vidéo
-  ocrButton.addEventListener("click", async () => {
-    disableButtons(true);
-    updateStatus("Étape 1/5 : Vérification d'une analyse précédente...", 10);
-
-    try {
-      // Petite pause pour permettre à l'UI de se mettre à jour
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      // Tentative d'extraction depuis le cache d'abord
-      const cacheKey = generateCacheKey(window.location.href, "ocr");
-      const cachedData = getFromCache(cacheKey);
-
-      if (cachedData) {
-        console.log("Données OCR trouvées dans le cache");
-        updateStatus("Texte déjà analysé précédemment!", 100);
-
-        showContentModal({
-          title: "Texte trouvé dans la vidéo",
-          sections: [
-            {
-              title: "Texte",
-              content: cachedData.text || "Aucun texte trouvé",
-            },
-          ],
-        });
-
-        setTimeout(() => {
-          disableButtons(false);
-        }, 1000);
-
-        return;
-      }
-
-      updateStatus(
-        "Étape 2/5 : Téléchargement de la vidéo pour analyse...",
-        20
-      );
-      console.log("Envoi de la requête OCR au serveur...");
-
-      // Simuler des progrès pendant le téléchargement
-      let progressStage = 20;
-      const progressInterval = setInterval(() => {
-        if (progressStage < 45) {
-          progressStage += 1;
-          updateStatus(
-            "Étape 2/5 : Téléchargement de la vidéo pour analyse...",
-            progressStage
-          );
-        }
-      }, 300);
-
-      const response = await fetch("http://localhost:3000/direct-process-ocr", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ url: window.location.href }),
-      });
-
-      clearInterval(progressInterval);
-
-      if (!response.ok) {
-        console.error("Erreur HTTP:", response.status, response.statusText);
-        throw new Error("Erreur lors du traitement OCR");
-      }
-
-      updateStatus("Étape 3/5 : Recherche du texte dans les images...", 50);
-
-      // Simuler des progrès pendant l'analyse des images
-      progressStage = 50;
-      const ocrInterval = setInterval(() => {
-        if (progressStage < 65) {
-          progressStage += 1;
-          updateStatus(
-            "Étape 3/5 : Recherche du texte dans les images...",
-            progressStage
-          );
-        }
-      }, 300);
-
-      const data = await response.json();
-      clearInterval(ocrInterval);
-
-      console.log("Réponse OCR brute reçue du serveur:", data);
-
-      updateStatus(
-        "Étape 4/5 : Amélioration du texte par intelligence artificielle...",
-        70
-      );
-
-      // Simuler des progrès pendant l'amélioration IA
-      progressStage = 70;
-      const aiInterval = setInterval(() => {
-        if (progressStage < 85) {
-          progressStage += 1;
-          updateStatus(
-            "Étape 4/5 : Amélioration du texte par intelligence artificielle...",
-            progressStage
-          );
-        }
-      }, 200);
-
-      if (data && data.success) {
-        setTimeout(() => {
-          clearInterval(aiInterval);
-          updateStatus("Étape 5/5 : Finalisation des résultats...", 90);
-
-          let textContent = "";
-
-          // Vérifier les correctedTexts
-          console.log("CorrectedTexts reçus:", data.correctedTexts);
-
-          // Vérifier et utiliser les textes corrigés s'ils existent et ne sont pas vides
-          if (data.correctedTexts && data.correctedTexts.length > 0) {
-            console.log("Traitement des textes corrigés...");
-            textContent = data.correctedTexts
-              .filter((item) => item && item.text && item.text.trim() !== "")
-              .map((item) => item.text)
-              .join("\n\n");
-            console.log("Texte formaté depuis correctedTexts:", textContent);
-          }
-
-          // Si les textes corrigés sont vides, utiliser le texte brut
-          if (!textContent && data.text) {
-            console.log("Utilisation du texte brut:", data.text);
-            textContent = data.text.trim();
-          }
-
-          console.log("Texte final formaté pour l'affichage:", textContent);
-
-          // Créer un objet résultat avec des valeurs par défaut explicites
-          const result = {
-            success: true,
-            text: textContent || "Aucun texte trouvé",
-            correctedTexts: data.correctedTexts || [],
-          };
-
-          console.log("Objet résultat final:", result);
-
-          // Sauvegarder dans le cache
-          saveToCache(cacheKey, result);
-
-          updateStatus("Texte trouvé avec succès!", 100);
-
-          // Afficher le texte extrait dans une modal
-          showContentModal({
-            title: "Texte trouvé dans la vidéo",
-            sections: [
-              {
-                title: "Texte",
-                content: result.text,
-              },
-            ],
-          });
-        }, 1000);
-      } else {
-        clearInterval(aiInterval);
-        console.warn("La réponse du serveur n'indique pas de succès:", data);
-        updateStatus(
-          "Impossible de trouver du texte dans la vidéo. Essayez avec une autre vidéo.",
-          0
-        );
-      }
-    } catch (error) {
-      console.error("Erreur lors de l'OCR:", error);
-      updateStatus(
-        "Impossible de trouver du texte dans la vidéo. Essayez avec une autre vidéo.",
-        0
-      );
-    } finally {
-      setTimeout(() => {
-        disableButtons(false);
-      }, 3000);
-    }
-  });
-
-  // Tout télécharger
+  // Modifier le gestionnaire d'événements du bouton "Télécharger la sélection"
   downloadAllButton.addEventListener("click", async () => {
     disableButtons(true);
     updateStatus("Étape 1/5 : Préparation...", 5);
 
     try {
-      // Petite pause pour permettre à l'UI de se mettre à jour
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      const preferences = {};
+      checkboxes.forEach((checkbox) => {
+        preferences[checkbox.dataset.option] = checkbox.checked;
+      });
 
-      const currentUrl = window.location.href;
+      // Envoyer les préférences au backend
+      const response = await fetch("http://localhost:3000/download-all", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          url: window.location.href,
+          preferences: preferences,
+        }),
+      });
 
-      // Simuler des progrès pendant la préparation
-      let progress = 5;
-      const prepInterval = setInterval(() => {
-        if (progress < 15) {
-          progress += 1;
-          updateStatus("Étape 1/5 : Préparation...", progress);
+      if (!response.ok) {
+        throw new Error("Erreur lors du téléchargement");
+      }
+
+      const data = await response.json();
+
+      if (data.success) {
+        let allContent = {
+          description: "",
+          hashtags: [],
+          text: "",
+          correctedTexts: [],
+        };
+
+        // Télécharger les fichiers selon les préférences
+        if (preferences.video && data.videoUrl) {
+          updateStatus("Étape 2/5 : Téléchargement de la vidéo...", 30);
+          await downloadFileWithoutNewTab(
+            `http://localhost:3000${data.videoUrl}`,
+            "instagram_video.mp4"
+          );
         }
-      }, 200);
 
-      setTimeout(() => {
-        clearInterval(prepInterval);
-        updateStatus("Étape 2/5 : Préparation du téléchargement...", 20);
+        if (preferences.audio && data.audioUrl) {
+          updateStatus("Étape 3/5 : Téléchargement de l'audio...", 50);
+          const fileExtension = data.audioUrl.toLowerCase().endsWith(".mp3")
+            ? "mp3"
+            : "mp4";
+          await downloadFileWithoutNewTab(
+            `http://localhost:3000${data.audioUrl}`,
+            `instagram_audio.${fileExtension}`
+          );
+        }
 
-        // Simuler des progrès pendant l'envoi de la demande
-        progress = 20;
-        const requestInterval = setInterval(() => {
-          if (progress < 35) {
-            progress += 1;
-            updateStatus(
-              "Étape 2/5 : Préparation du téléchargement...",
-              progress
-            );
-          }
-        }, 200);
-
-        setTimeout(async () => {
-          console.log("Envoi de la requête download-all au serveur...");
-          try {
-            const response = fetch("http://localhost:3000/download-all", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({ url: currentUrl }),
-            })
-              .then(async (response) => {
-                clearInterval(requestInterval);
-
-                if (!response.ok) {
-                  throw new Error("Erreur lors du téléchargement du contenu");
-                }
-
-                updateStatus("Étape 3/5 : Récupération des fichiers...", 40);
-
-                // Simuler des progrès pendant le traitement
-                progress = 40;
-                const processInterval = setInterval(() => {
-                  if (progress < 55) {
-                    progress += 1;
-                    updateStatus(
-                      "Étape 3/5 : Récupération des fichiers...",
-                      progress
-                    );
-                  }
-                }, 200);
-
-                const data = await response.json();
-                setTimeout(() => {
-                  clearInterval(processInterval);
-                  console.log("Réponse download-all reçue du serveur:", data);
-
-                  if (!data.success) {
-                    throw new Error(data.error || "Échec du téléchargement");
-                  }
-
-                  // Télécharger la vidéo
-                  if (data.videoUrl) {
-                    try {
-                      updateStatus(
-                        "Étape 4/5 : Enregistrement de la vidéo...",
-                        60
-                      );
-                      downloadFileWithoutNewTab(
-                        `http://localhost:3000${data.videoUrl}`,
-                        "instagram_video.mp4"
-                      )
-                        .then(() => {
-                          // Ajouter un délai avant le prochain téléchargement
-                          setTimeout(() => {
-                            // Télécharger l'audio
-                            if (data.audioUrl) {
-                              try {
-                                updateStatus(
-                                  "Étape 5/5 : Enregistrement du son...",
-                                  80
-                                );
-                                const fileExtension = data.audioUrl
-                                  .toLowerCase()
-                                  .endsWith(".mp3")
-                                  ? "mp3"
-                                  : "mp4";
-                                downloadFileWithoutNewTab(
-                                  `http://localhost:3000${data.audioUrl}`,
-                                  `instagram_audio.${fileExtension}`
-                                )
-                                  .then(() => {
-                                    // Finaliser après le téléchargement audio
-                                    finalizeProcess();
-                                  })
-                                  .catch((error) => {
-                                    console.error(
-                                      "Erreur lors du téléchargement audio:",
-                                      error
-                                    );
-                                    updateStatus(
-                                      "Problème avec le son, finalisation...",
-                                      80
-                                    );
-                                    // Continuer même en cas d'erreur
-                                    finalizeProcess();
-                                  });
-                              } catch (error) {
-                                console.error(
-                                  "Erreur lors du téléchargement audio:",
-                                  error
-                                );
-                                updateStatus(
-                                  "Problème avec le son, finalisation...",
-                                  80
-                                );
-                                // Continuer même en cas d'erreur
-                                finalizeProcess();
-                              }
-                            } else {
-                              // Pas d'audio, finaliser directement
-                              finalizeProcess();
-                            }
-                          }, 1500);
-                        })
-                        .catch((error) => {
-                          console.error(
-                            "Erreur lors du téléchargement vidéo:",
-                            error
-                          );
-                          updateStatus(
-                            "Problème avec la vidéo, passage à l'étape suivante...",
-                            60
-                          );
-
-                          // Télécharger l'audio même si problème avec la vidéo
-                          if (data.audioUrl) {
-                            try {
-                              updateStatus(
-                                "Étape 5/5 : Enregistrement du son...",
-                                80
-                              );
-                              const fileExtension = data.audioUrl
-                                .toLowerCase()
-                                .endsWith(".mp3")
-                                ? "mp3"
-                                : "mp4";
-                              downloadFileWithoutNewTab(
-                                `http://localhost:3000${data.audioUrl}`,
-                                `instagram_audio.${fileExtension}`
-                              )
-                                .then(() => {
-                                  finalizeProcess();
-                                })
-                                .catch((error) => {
-                                  console.error(
-                                    "Erreur lors du téléchargement audio:",
-                                    error
-                                  );
-                                  updateStatus(
-                                    "Problème avec le son, finalisation...",
-                                    80
-                                  );
-                                  finalizeProcess();
-                                });
-                            } catch (error) {
-                              console.error(
-                                "Erreur lors du téléchargement audio:",
-                                error
-                              );
-                              updateStatus(
-                                "Problème avec le son, finalisation...",
-                                80
-                              );
-                              finalizeProcess();
-                            }
-                          } else {
-                            finalizeProcess();
-                          }
-                        });
-                    } catch (error) {
-                      console.error(
-                        "Erreur lors du téléchargement vidéo:",
-                        error
-                      );
-                      updateStatus(
-                        "Problème avec la vidéo, passage à l'étape suivante...",
-                        60
-                      );
-
-                      // Télécharger l'audio même si problème avec la vidéo
-                      if (data.audioUrl) {
-                        try {
-                          updateStatus(
-                            "Étape 5/5 : Enregistrement du son...",
-                            80
-                          );
-                          const fileExtension = data.audioUrl
-                            .toLowerCase()
-                            .endsWith(".mp3")
-                            ? "mp3"
-                            : "mp4";
-                          downloadFileWithoutNewTab(
-                            `http://localhost:3000${data.audioUrl}`,
-                            `instagram_audio.${fileExtension}`
-                          )
-                            .then(() => {
-                              finalizeProcess();
-                            })
-                            .catch((error) => {
-                              console.error(
-                                "Erreur lors du téléchargement audio:",
-                                error
-                              );
-                              updateStatus(
-                                "Problème avec le son, finalisation...",
-                                80
-                              );
-                              finalizeProcess();
-                            });
-                        } catch (error) {
-                          console.error(
-                            "Erreur lors du téléchargement audio:",
-                            error
-                          );
-                          updateStatus(
-                            "Problème avec le son, finalisation...",
-                            80
-                          );
-                          finalizeProcess();
-                        }
-                      } else {
-                        finalizeProcess();
-                      }
-                    }
-                  } else {
-                    // Pas de vidéo, passer à l'audio directement
-                    if (data.audioUrl) {
-                      try {
-                        updateStatus(
-                          "Étape 5/5 : Enregistrement du son...",
-                          80
-                        );
-                        const fileExtension = data.audioUrl
-                          .toLowerCase()
-                          .endsWith(".mp3")
-                          ? "mp3"
-                          : "mp4";
-                        downloadFileWithoutNewTab(
-                          `http://localhost:3000${data.audioUrl}`,
-                          `instagram_audio.${fileExtension}`
-                        )
-                          .then(() => {
-                            finalizeProcess();
-                          })
-                          .catch((error) => {
-                            console.error(
-                              "Erreur lors du téléchargement audio:",
-                              error
-                            );
-                            updateStatus(
-                              "Problème avec le son, finalisation...",
-                              80
-                            );
-                            finalizeProcess();
-                          });
-                      } catch (error) {
-                        console.error(
-                          "Erreur lors du téléchargement audio:",
-                          error
-                        );
-                        updateStatus(
-                          "Problème avec le son, finalisation...",
-                          80
-                        );
-                        finalizeProcess();
-                      }
-                    } else {
-                      finalizeProcess();
-                    }
-                  }
-                }, 1000);
-              })
-              .catch((error) => {
-                clearInterval(requestInterval);
-                throw error;
-              });
-          } catch (error) {
-            clearInterval(requestInterval);
-            throw error;
-          }
-        }, 800);
-      }, 800);
-
-      // Fonction pour finaliser le processus et afficher les résultats
-      async function finalizeProcess() {
-        updateStatus("Analyse du texte et de la description...", 90);
-        let description = "";
-        let hashtags = [];
-        let text = "";
-        let correctedTexts = [];
-
-        try {
-          // Si les données ne sont pas incluses dans la réponse, les obtenir via process-all
+        // Extraire les métadonnées si demandé
+        if (preferences.description || preferences.hashtags) {
+          updateStatus("Étape 4/5 : Extraction des métadonnées...", 70);
           const metadataResponse = await fetch(
             "http://localhost:3000/process-all",
             {
@@ -1662,70 +958,198 @@ function setupDownloadButtons() {
               headers: {
                 "Content-Type": "application/json",
               },
-              body: JSON.stringify({ url: currentUrl }),
+              body: JSON.stringify({
+                url: window.location.href,
+                skipOcr: true,
+              }),
             }
           );
 
           if (metadataResponse.ok) {
             const metadataData = await metadataResponse.json();
+            allContent.description = metadataData.description || "";
+            allContent.hashtags = metadataData.hashtags || [];
+          }
+        }
 
-            description = metadataData.description || "";
-            hashtags = metadataData.hashtags || [];
-            text = metadataData.text || "";
-            correctedTexts = metadataData.correctedTexts || [];
-
-            // Sauvegarder dans le cache
-            if (description || hashtags.length > 0) {
-              saveToCache(generateCacheKey(currentUrl, "metadata"), {
-                description,
-                hashtags,
-              });
+        // Extraire le texte si demandé
+        if (preferences.text) {
+          updateStatus("Étape 5/5 : Extraction du texte...", 90);
+          const ocrResponse = await fetch(
+            "http://localhost:3000/direct-process-ocr",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ url: window.location.href }),
             }
+          );
 
-            if (text || correctedTexts.length > 0) {
-              saveToCache(generateCacheKey(currentUrl, "ocr"), {
-                success: true,
-                text,
-                correctedTexts,
-              });
+          if (ocrResponse.ok) {
+            const ocrData = await ocrResponse.json();
+            if (ocrData.success) {
+              allContent.text = ocrData.text || "";
+              allContent.correctedTexts = ocrData.correctedTexts || [];
             }
           }
-        } catch (metadataError) {
-          console.error(
-            "Erreur lors de la récupération des métadonnées:",
-            metadataError
-          );
         }
 
         updateStatus("Téléchargement terminé avec succès!", 100);
 
-        // Afficher les résultats dans la modale
-        showContentModal({
-          title: "Contenu extrait",
-          sections: [
-            {
-              title: "Description et Hashtags",
-              content: `${description || "Aucune description disponible"}${
-                hashtags?.length > 0 ? "\n\n" + hashtags.join(" ") : ""
-              }`,
-            },
-            {
-              title: "Texte trouvé",
-              content:
-                correctedTexts?.length > 0
-                  ? correctedTexts.map((item) => item.text).join("\n\n")
-                  : text || "Aucun texte trouvé",
-            },
-          ],
-        });
+        // Afficher la modale avec tous les contenus une fois que tout est traité
+        const sections = [];
 
-        setTimeout(() => {
-          disableButtons(false);
-        }, 3000);
+        // Si seul les hashtags sont sélectionnés, afficher une modale spécifique
+        if (
+          preferences.hashtags &&
+          !preferences.description &&
+          !preferences.text
+        ) {
+          if (allContent.hashtags && allContent.hashtags.length > 0) {
+            sections.push({
+              title: "Hashtags",
+              content: allContent.hashtags.join("\n"),
+            });
+          } else {
+            // Afficher la modale "Aucun hashtag trouvé"
+            const modal = document.createElement("div");
+            modal.className = "ezmeme-modal";
+            modal.innerHTML = `
+              <div class="ezmeme-modal-content">
+                <div class="ezmeme-modal-header">
+                  <h3>Information</h3>
+                  <span class="ezmeme-modal-close">&times;</span>
+                </div>
+                <div class="ezmeme-modal-body">
+                  <p>Aucun hashtag n'a été trouvé dans cette publication.</p>
+                </div>
+                <div class="ezmeme-modal-footer">
+                  <button class="ezmeme-modal-button">OK</button>
+                </div>
+              </div>
+            `;
+
+            // Ajouter la modale au document
+            document.body.appendChild(modal);
+
+            // Ajouter les styles spécifiques pour cette modale
+            const style = document.createElement("style");
+            style.textContent = `
+              .ezmeme-modal {
+                display: flex;
+                position: fixed;
+                z-index: 10000;
+                left: 0;
+                top: 0;
+                width: 100%;
+                height: 100%;
+                background-color: rgba(0, 0, 0, 0.5);
+                align-items: center;
+                justify-content: center;
+              }
+              .ezmeme-modal-content {
+                background-color: #fff;
+                border-radius: 8px;
+                width: 90%;
+                max-width: 400px;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+              }
+              .ezmeme-modal-header {
+                padding: 15px 20px;
+                border-bottom: 1px solid #eee;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+              }
+              .ezmeme-modal-header h3 {
+                margin: 0;
+                color: #333;
+                font-size: 18px;
+              }
+              .ezmeme-modal-close {
+                color: #aaa;
+                font-size: 24px;
+                cursor: pointer;
+              }
+              .ezmeme-modal-body {
+                padding: 20px;
+                text-align: center;
+              }
+              .ezmeme-modal-footer {
+                padding: 15px 20px;
+                border-top: 1px solid #eee;
+                text-align: center;
+              }
+              .ezmeme-modal-button {
+                background-color: #0095f6;
+                color: white;
+                border: none;
+                padding: 8px 20px;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 14px;
+              }
+              .ezmeme-modal-button:hover {
+                background-color: #0081d6;
+              }
+            `;
+            document.head.appendChild(style);
+
+            // Gérer la fermeture de la modale
+            const closeModal = () => {
+              document.body.removeChild(modal);
+              document.head.removeChild(style);
+            };
+
+            // Événements pour fermer la modale
+            modal.querySelector(".ezmeme-modal-close").onclick = closeModal;
+            modal.querySelector(".ezmeme-modal-button").onclick = closeModal;
+            modal.onclick = (e) => {
+              if (e.target === modal) closeModal();
+            };
+          }
+        } else {
+          // Sinon, afficher les sections normalement
+          if (preferences.description || preferences.hashtags) {
+            sections.push({
+              title: "Description et Hashtags",
+              content: `${
+                allContent.description || "Aucune description disponible"
+              }${
+                allContent.hashtags?.length > 0
+                  ? "\n\n" + allContent.hashtags.join(" ")
+                  : ""
+              }`,
+            });
+          }
+
+          if (preferences.text) {
+            sections.push({
+              title: "Texte trouvé dans la vidéo",
+              content:
+                allContent.correctedTexts?.length > 0
+                  ? allContent.correctedTexts
+                      .map((item) => item.text)
+                      .join("\n\n")
+                  : allContent.text || "Aucun texte trouvé",
+            });
+          }
+        }
+
+        if (sections.length > 0) {
+          showContentModal({
+            title: "Contenu extrait",
+            sections: sections,
+          });
+        }
+      } else {
+        throw new Error(data.error || "Échec du téléchargement");
       }
     } catch (error) {
-      console.error("Erreur lors du téléchargement complet:", error);
-      updateStatus("Problème lors du téléchargement. Réessayez plus tard.", 0);
+      console.error("Erreur lors du téléchargement:", error);
+      updateStatus("Erreur lors du téléchargement: " + error.message, 0);
+    } finally {
       setTimeout(() => {
         disableButtons(false);
       }, 3000);
@@ -2266,7 +1690,10 @@ async function downloadAllContent() {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ url: currentUrl }),
+          body: JSON.stringify({
+            url: currentUrl,
+            skipOcr: true,
+          }),
         }
       );
 
@@ -2340,5 +1767,270 @@ async function downloadAllContent() {
     buttons.forEach((button) => {
       button.disabled = false;
     });
+  }
+}
+
+// Ajouter la fonction pour charger les préférences
+function loadPreferences() {
+  chrome.storage.local.get(["downloadPreferences"], (result) => {
+    const preferences = result.downloadPreferences || {
+      video: true,
+      audio: true,
+      description: true,
+      hashtags: true,
+      text: true,
+    };
+
+    const checkboxes = downloadMenu.querySelectorAll(".option-checkbox");
+    checkboxes.forEach((checkbox) => {
+      const option = checkbox.dataset.option;
+      checkbox.checked = preferences[option];
+    });
+  });
+}
+
+// Ajouter la fonction pour sauvegarder les préférences
+function savePreferences() {
+  const preferences = {};
+  const checkboxes = downloadMenu.querySelectorAll(".option-checkbox");
+  checkboxes.forEach((checkbox) => {
+    preferences[checkbox.dataset.option] = checkbox.checked;
+  });
+
+  chrome.storage.local.set({ downloadPreferences: preferences });
+}
+
+// Fonction pour télécharger un fichier sans ouvrir un nouvel onglet
+function downloadFileWithoutNewTab(url, filename) {
+  console.log(`Téléchargement de fichier: ${filename} depuis ${url}`);
+
+  // On utilise une promesse pour pouvoir ajouter des délais entre les téléchargements
+  return new Promise((resolve, reject) => {
+    // Solution 1: Utiliser l'API Fetch puis créer un objet URL
+    fetch(url)
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Erreur HTTP: ${response.status}`);
+        }
+        return response.blob();
+      })
+      .then((blob) => {
+        console.log(`Blob récupéré pour ${filename}:`, blob);
+
+        // Créer un objet URL à partir du blob
+        const blobUrl = URL.createObjectURL(blob);
+
+        // Créer un élément a pour télécharger
+        const a = document.createElement("a");
+        a.style.display = "none";
+        a.href = blobUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+
+        // Déclencher le téléchargement
+        console.log(`Déclenchement du téléchargement pour ${filename}`);
+        a.click();
+
+        // Nettoyer
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(blobUrl);
+          console.log(`Nettoyage effectué pour ${filename}`);
+          resolve(); // Résoudre la promesse une fois le téléchargement terminé
+        }, 1000);
+      })
+      .catch((error) => {
+        console.error(`Erreur lors du téléchargement de ${filename}:`, error);
+
+        // Solution de secours: redirection directe
+        try {
+          console.log(`Tentative avec redirection directe pour ${filename}`);
+          const link = document.createElement("a");
+          link.href = url;
+          link.setAttribute("download", filename);
+          link.setAttribute("target", "_blank");
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          resolve(); // Résoudre quand même pour continuer
+        } catch (fallbackError) {
+          console.error("Erreur avec la méthode de secours:", fallbackError);
+          reject(error);
+        }
+      });
+  });
+}
+
+// Fonction pour extraire les métadonnées
+async function extractMetadata(url) {
+  try {
+    const response = await fetch("http://localhost:3000/process-all", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        url: url,
+        skipOcr: true, // On skip l'OCR car on ne veut que les métadonnées
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return {
+      description: data.description || "",
+      hashtags: data.hashtags || [],
+    };
+  } catch (error) {
+    console.error("Erreur lors de l'extraction des métadonnées:", error);
+    return {
+      description: "",
+      hashtags: [],
+    };
+  }
+}
+
+// Fonction pour télécharger la description
+async function downloadDescription() {
+  try {
+    const metadata = await extractMetadata(currentUrl);
+    if (metadata.description) {
+      const blob = new Blob([metadata.description], { type: "text/plain" });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "description.txt";
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } else {
+      showError("Aucune description trouvée");
+    }
+  } catch (error) {
+    console.error("Erreur lors du téléchargement de la description:", error);
+    showError("Erreur lors du téléchargement de la description");
+  }
+}
+
+// Fonction pour télécharger les hashtags
+async function downloadHashtags() {
+  try {
+    const metadata = await extractMetadata(currentUrl);
+    if (metadata.hashtags && metadata.hashtags.length > 0) {
+      const hashtagsText = metadata.hashtags.join("\n");
+      const blob = new Blob([hashtagsText], { type: "text/plain" });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "hashtags.txt";
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } else {
+      // Créer et afficher la modale d'erreur
+      const modal = document.createElement("div");
+      modal.className = "ezmeme-modal";
+      modal.innerHTML = `
+        <div class="ezmeme-modal-content">
+          <div class="ezmeme-modal-header">
+            <h3>Information</h3>
+            <span class="ezmeme-modal-close">&times;</span>
+          </div>
+          <div class="ezmeme-modal-body">
+            <p>Aucun hashtag n'a été trouvé dans cette publication.</p>
+          </div>
+          <div class="ezmeme-modal-footer">
+            <button class="ezmeme-modal-button">OK</button>
+          </div>
+        </div>
+      `;
+
+      // Ajouter la modale au document
+      document.body.appendChild(modal);
+
+      // Ajouter les styles spécifiques pour cette modale
+      const style = document.createElement("style");
+      style.textContent = `
+        .ezmeme-modal {
+          display: flex;
+          position: fixed;
+          z-index: 10000;
+          left: 0;
+          top: 0;
+          width: 100%;
+          height: 100%;
+          background-color: rgba(0, 0, 0, 0.5);
+          align-items: center;
+          justify-content: center;
+        }
+        .ezmeme-modal-content {
+          background-color: #fff;
+          border-radius: 8px;
+          width: 90%;
+          max-width: 400px;
+          box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .ezmeme-modal-header {
+          padding: 15px 20px;
+          border-bottom: 1px solid #eee;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        .ezmeme-modal-header h3 {
+          margin: 0;
+          color: #333;
+          font-size: 18px;
+        }
+        .ezmeme-modal-close {
+          color: #aaa;
+          font-size: 24px;
+          cursor: pointer;
+        }
+        .ezmeme-modal-body {
+          padding: 20px;
+          text-align: center;
+        }
+        .ezmeme-modal-footer {
+          padding: 15px 20px;
+          border-top: 1px solid #eee;
+          text-align: center;
+        }
+        .ezmeme-modal-button {
+          background-color: #0095f6;
+          color: white;
+          border: none;
+          padding: 8px 20px;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 14px;
+        }
+        .ezmeme-modal-button:hover {
+          background-color: #0081d6;
+        }
+      `;
+      document.head.appendChild(style);
+
+      // Gérer la fermeture de la modale
+      const closeModal = () => {
+        document.body.removeChild(modal);
+        document.head.removeChild(style);
+      };
+
+      // Événements pour fermer la modale
+      modal.querySelector(".ezmeme-modal-close").onclick = closeModal;
+      modal.querySelector(".ezmeme-modal-button").onclick = closeModal;
+      modal.onclick = (e) => {
+        if (e.target === modal) closeModal();
+      };
+    }
+  } catch (error) {
+    console.error("Erreur lors du téléchargement des hashtags:", error);
+    showError("Erreur lors du téléchargement des hashtags");
   }
 }

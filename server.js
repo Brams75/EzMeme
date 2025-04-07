@@ -18,19 +18,13 @@ import os from "os";
 // Utilitaire pour mesurer le temps des opérations
 const Timer = {
   start: (label) => {
-    const timerLabel = `⏱️ ${label}`;
-    console.time(timerLabel);
-    return { label: timerLabel, startTime: Date.now() };
+    console.time(`⏱️ ${label}`);
+    return { label, startTime: Date.now() };
   },
   end: (timer) => {
     const duration = (Date.now() - timer.startTime) / 1000;
-    try {
-      console.timeEnd(timer.label);
-    } catch (e) {
-      // En cas d'erreur de timeEnd (étiquette non trouvée), afficher un message personnalisé
-      console.log(`${timer.label} a pris ${duration.toFixed(2)} secondes`);
-    }
-    console.log(`${timer.label} a pris ${duration.toFixed(2)} secondes`);
+    console.timeEnd(`⏱️ ${timer.label}`);
+    console.log(`⏱️ ${timer.label} a pris ${duration.toFixed(2)} secondes`);
     return duration;
   },
 };
@@ -910,16 +904,16 @@ async function extractFramesFromVideo(videoPath, outputFolder, maxFrames = 20) {
 
     if (durationInSeconds < 10) {
       // Vidéos très courtes: maximum de détails car probablement beaucoup de texte en peu de temps
-      interval = 1; // 1 frame par seconde
+      interval = 2; // 1 frame toutes les 2 secondes
       framesTarget = Math.min(10, Math.ceil(durationInSeconds)); // Max 10 frames
       console.log(
         "Vidéo très courte: échantillonnage fréquent pour capturer tous les textes"
       );
     } else if (durationInSeconds < 15) {
       // Vidéos courtes: échantillonnage assez fréquent
-      interval = 1.5; // 1 frame toutes les 1.5 secondes
-      framesTarget = Math.min(12, Math.ceil(durationInSeconds / 1.5)); // ~8-10 frames
-      console.log("Vidéo courte: échantillonnage toutes les 1.5 secondes");
+      interval = 2; // 1 frame toutes les 2 secondes
+      framesTarget = Math.min(12, Math.ceil(durationInSeconds / 2)); // ~8-10 frames
+      console.log("Vidéo courte: échantillonnage toutes les 2 secondes");
     } else if (durationInSeconds < 30) {
       // Vidéos moyennes: échantillonnage modéré
       interval = 3; // 1 frame toutes les 3 secondes
@@ -1531,30 +1525,6 @@ async function directDownloadVideo(url) {
   const completeVideoPath = path.join(outputDir, "reel_complete.mp4");
   const audioPath = path.join(outputDir, "reel_audio.mp3"); // Toujours utiliser .mp3 pour l'audio
 
-  // Vérifier si les fichiers existent déjà
-  const fileExists = (filePath) => {
-    try {
-      return fs.existsSync(filePath) && fs.statSync(filePath).size > 0;
-    } catch (e) {
-      return false;
-    }
-  };
-
-  // Si les deux fichiers existent déjà, retourner immédiatement
-  if (fileExists(completeVideoPath) && fileExists(audioPath)) {
-    console.log(
-      "Les fichiers vidéo et audio existent déjà, pas besoin de télécharger"
-    );
-    const totalDuration = Timer.end(totalTimer);
-    return {
-      success: true,
-      videoPath: completeVideoPath,
-      audioPath: audioPath,
-      duration: totalDuration,
-      reused: true,
-    };
-  }
-
   try {
     // Lancer Puppeteer en mode headless "new"
     const puppeteerTimer = Timer.start("Initialisation Puppeteer");
@@ -1594,7 +1564,7 @@ async function directDownloadVideo(url) {
     let hasVideoSegments = false;
     let hasAudioSegments = false;
     let segmentCheckInterval = null;
-    let maxWaitTime = 12000; // Réduit à 12 secondes au lieu de 15
+    let maxWaitTime = 20000; // Augmenté à 20 secondes pour donner plus de temps à la récupération des segments
     let waitStartTime = Date.now();
     let earlySegmentsThreshold = 1; // Réduit de 2 à 1 pour terminer plus rapidement
 
@@ -1618,7 +1588,10 @@ async function directDownloadVideo(url) {
         if (contentType.includes("video") && !url.startsWith("blob:")) {
           // Vérifier que la réponse peut être traitée
           // Si la réponse a déjà été consommée ou si la cible est fermée, ignorer
-          if (!response.ok() || response._request._interceptionHandled) {
+          if (
+            !response.ok() ||
+            (response._request && response._request._interceptionHandled)
+          ) {
             return;
           }
 
@@ -1645,11 +1618,22 @@ async function directDownloadVideo(url) {
           let type = null;
           if (
             url.includes("dash_ln_heaac_vbr3_audio") ||
-            url.includes("t16/f2/m69")
+            url.includes("t16/f2/m69") ||
+            url.includes("audio") ||
+            (url.includes("instagram.com/api/v1") &&
+              contentType.includes("audio")) ||
+            (url.includes("instagram.fbru") && contentType.includes("audio"))
           ) {
             type = "audio";
             hasAudioSegments = true;
-          } else if (url.includes("t2/f2/m86") || buffer.length > 100000) {
+          } else if (
+            url.includes("t2/f2/m86") ||
+            url.includes("video") ||
+            (url.includes("instagram.com/api/v1") &&
+              contentType.includes("video")) ||
+            (url.includes("instagram.fbru") && contentType.includes("video")) ||
+            buffer.length > 100000
+          ) {
             type = "video";
             hasVideoSegments = true;
           }
@@ -1973,7 +1957,33 @@ async function directDownloadVideo(url) {
           );
         }
       } else {
-        throw new Error("Segments vidéo ou audio manquants");
+        // Vérifier si les fichiers existent déjà avant de signaler une erreur
+        const existingVideoPath = path.join(outputDir, "reel_complete.mp4");
+        const existingAudioPath = path.join(outputDir, "reel_audio.mp3");
+
+        const fileExists = (filePath) => {
+          try {
+            return fs.existsSync(filePath) && fs.statSync(filePath).size > 0;
+          } catch (e) {
+            return false;
+          }
+        };
+
+        if (fileExists(existingVideoPath) && fileExists(existingAudioPath)) {
+          console.log(
+            "Aucun segment récupéré, mais fichiers existants trouvés et réutilisés"
+          );
+          const totalDuration = Timer.end(totalTimer);
+          return {
+            success: true,
+            videoPath: existingVideoPath,
+            audioPath: existingAudioPath,
+            duration: totalDuration,
+            reused: true,
+          };
+        } else {
+          throw new Error("Segments vidéo ou audio manquants");
+        }
       }
 
       const totalDuration = Timer.end(totalTimer);
@@ -2068,7 +2078,6 @@ app.post("/process-all", async (req, res) => {
           return false;
         }
       };
-
       // Vérifier si les médias existent déjà
       if (fileExists(videoPath) && fileExists(audioPath)) {
         console.log("Vidéo et audio déjà disponibles, réutilisation...");
@@ -2561,9 +2570,8 @@ app.post("/download-all", async (req, res) => {
     // Vérifier si les fichiers existent déjà
     const videoPath = path.join(__dirname, "downloads", "reel_complete.mp4");
     const audioPath = path.join(__dirname, "downloads", "reel_audio.mp3");
-    let mediasExist = false;
 
-    // Vérification de l'existence des fichiers
+    // Fonction pour vérifier si un fichier existe et n'est pas vide
     const fileExists = (filePath) => {
       try {
         return fs.existsSync(filePath) && fs.statSync(filePath).size > 0;
@@ -2572,36 +2580,37 @@ app.post("/download-all", async (req, res) => {
       }
     };
 
-    // Vérifier si les médias existent déjà
+    // Si les deux fichiers existent déjà, on peut éviter le téléchargement
     if (fileExists(videoPath) && fileExists(audioPath)) {
       console.log("Vidéo et audio déjà disponibles, réutilisation...");
-      mediasExist = true;
-    } else {
-      console.log("Téléchargement des médias requis...");
-      // Télécharger la vidéo et l'audio
-      console.log("Démarrage du téléchargement complet pour:", url);
-      const result = await directDownloadVideo(url);
 
-      if (!result.success) {
-        throw new Error(result.error || "Échec du téléchargement");
-      }
+      return res.json({
+        success: true,
+        videoUrl: `/download/video/reel_complete.mp4`,
+        audioUrl: `/download/audio/reel_audio.mp3`,
+        reused: true,
+      });
+    }
 
-      // Vérifier à nouveau que les fichiers ont bien été créés
-      if (!fileExists(videoPath)) {
-        throw new Error("Le fichier vidéo n'a pas été créé");
-      }
+    // Télécharger la vidéo et l'audio
+    console.log("Démarrage du téléchargement complet pour:", url);
+    const result = await directDownloadVideo(url);
 
-      const audioExists = fileExists(audioPath);
-      if (!audioExists) {
-        console.warn("Le fichier audio MP3 n'existe pas, tentative avec MP4");
-        const audioPathMP4 = path.join(
-          __dirname,
-          "downloads",
-          "reel_audio.mp4"
-        );
-        if (!fileExists(audioPathMP4)) {
-          console.error("Aucun fichier audio trouvé (ni MP3 ni MP4)");
-        }
+    if (!result.success) {
+      throw new Error(result.error || "Échec du téléchargement");
+    }
+
+    // Vérifier que les fichiers existent bien
+    if (!fs.existsSync(videoPath)) {
+      throw new Error("Le fichier vidéo n'a pas été créé");
+    }
+
+    const audioExists = fs.existsSync(audioPath);
+    if (!audioExists) {
+      console.warn("Le fichier audio MP3 n'existe pas, tentative avec MP4");
+      const audioPathMP4 = path.join(__dirname, "downloads", "reel_audio.mp4");
+      if (!fs.existsSync(audioPathMP4)) {
+        console.error("Aucun fichier audio trouvé (ni MP3 ni MP4)");
       }
     }
 
